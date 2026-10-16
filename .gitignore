@@ -1,0 +1,180 @@
+# =============================================================================
+# .gitignore  —  机器学习学习工作区
+# =============================================================================
+# 为什么需要本文件：本项目的 Python 虚拟环境就有 4.4 GB / 2.2 万个文件
+# （仅 torch 的 CUDA 运行库占 2.5 GB）。若被 git 追踪，会同时造成：
+#   1. 仓库体积爆炸（git 保存历史快照，不是增量）
+#   2. 每次 git status / add 都要扫描上万个文件，慢到无法使用
+#   3. 推送远端时因仓库过大或单文件超限而失败
+# 所以虚拟环境、第三方库、缓存、大数据集一律排除。
+# =============================================================================
+
+
+# ------------------------------- Python 虚拟环境 -------------------------------
+# 只记录依赖清单（requirements.txt），环境本身可由清单重建：
+#     pip install -r requirements.txt
+.venv/
+venv/
+env/
+ENV/
+.conda/
+*.egg-info/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.pyd
+
+# ------------------------------- 打包与构建产物 -------------------------------
+build/
+dist/
+develop-eggs/
+eggs/
+.eggs/
+sdist/
+wheels/
+*.egg
+MANIFEST
+# 说明：此处刻意不写 lib/ 与 lib64/（常见模板里有过），
+# 因为它们会忽略任意位置名为 lib 的目录，可能误伤以后的 src/lib/。
+
+# ------------------------------- 测试与类型检查缓存 -------------------------------
+.pytest_cache/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.ruff_cache/
+.tox/
+.coverage
+.coverage.*
+htmlcov/
+.cache/
+coverage.xml
+*.cover
+.hypothesis/
+
+# ------------------------------- Jupyter -------------------------------
+# Notebook 的检查点目录是自动备份，无需入库
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/*
+
+# ------------------------------- 编辑器与 IDE -------------------------------
+# PyCharm：.idea/ 主要存本机路径与个人偏好，不适合入库
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# VS Code：只保留团队共享的设置，其余忽略
+# （注意：必须先忽略目录内容再写 ! 放行，直接忽略目录会导致 ! 失效）
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+*.code-workspace
+
+# Vim / Emacs
+*.swp
+*.swo
+\#*\#
+.\#*
+
+# 操作系统
+.DS_Store
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ------------------------------- 本工作区专用 -------------------------------
+# .build/：Markdown → PDF 的转换工具链（脚本 + MathJax/marked 两个 JS 库）。
+# 其中 lib/ 是共 2.1 MB 的第三方库，可重新下载，不适合入库。
+.build/
+# 若将来想保留自己写的转换脚本，把上面一行换成下面两行即可：
+#     .build/*
+#     !.build/make_html.py
+
+# .pylibs/：手动解包的 PDF 处理库（pypdf / pypdfium2 等，26 MB），
+# 是为生成论文 PDF 临时下载的第三方依赖，不属于项目源码。
+.pylibs/
+
+# pip 在本机临时目录受限时，会在项目根目录留下的中转目录。
+# 注：其中个别目录被系统附加了特殊权限（本机沙箱所致），既无法删除，
+#     也会让 git 扫描时报 permission denied 警告，故一并忽略。
+.ptmp/
+.pipwork/
+pip-build-tracker-*
+pip-install-*
+pip-unpack-*
+pip-metadata-*
+pip-ephem-wheel-cache-*
+
+# ------------------------------- 数据与模型 -------------------------------
+# 数据集体积大、且通常可用脚本重新生成，不入库；但保留目录本身。
+# （注意：必须先写 data/* 再写 !data/.gitkeep。
+#   若直接写 data/ 忽略整个目录，后面的 ! 放行规则将失效。）
+data/*
+!data/.gitkeep
+datasets/*
+!datasets/.gitkeep
+
+# 模型权重
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.onnx
+*.h5
+*.pb
+*.tflite
+
+# 训练过程产物
+checkpoints/
+runs/
+logs/
+outputs/
+wandb/
+lightning_logs/
+mlruns/
+*.log
+
+# 压缩包（数据集常见分发格式）
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+*.rar
+# 若某个小数据集需要入库，单独放行，例如：
+#     !data/raw/small_sample.zip
+
+# ------------------------------- 环境变量与密钥 -------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets.json
+credentials.json
+
+# ------------------------------- 预训练模型与词向量缓存 -------------------------------
+*.vec
+*.w2v
+*.glove
+huggingface/
+transformers_cache/
+
+# ------------------------------- 科研写作中间产物 -------------------------------
+# LaTeX 编译产物
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.synctex.gz
+*.toc
+*.out
+# Office 临时锁文件
+~$*.docx
+~$*.xlsx
+~$*.pptx
