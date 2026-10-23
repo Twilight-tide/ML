@@ -104,7 +104,48 @@ q 代表「我现在想找一个函数名」，那么内积大就表示「我现
 
 <p>
 不需要学完 numpy。整个项目用到的只有八个动作，下面这张表可以贴在显示器上。
+不过在贴之前，得先把表里反复出现的那个词说清楚。
 </p>
+
+<h3>先搞清楚 axis 是什么</h3>
+
+<p>
+一个数组可以有几个「方向」。一维数组沿一条线排开，只有一个方向；二维数组铺在一个平面上，有横向和纵向两个方向；三维数组（也叫张量）占满一块空间，有三个方向。
+<b>每一个这样的方向，就叫一个「轴」，英文 axis。</b>
+</p>
+
+<p>
+轴从 0 开始编号。所以 <code>shape</code> 和 <code>axis</code> 说的其实是同一件事的两面：
+</p>
+
+<div class="diagram">
+  <div class="box">shape = (3, 4)</div>
+  <span class="arrow">⟺</span>
+  <div class="box">axis 0 长度 3<br>axis 1 长度 4</div>
+</div>
+
+<p>
+<code>shape</code> 告诉你每个轴有多长，<code>axis=k</code> 告诉你「要操作第 k 个轴」。
+看到 <code>(3, 4)</code>，就该知道它有两个轴：0 和 1，不存在 axis 2。
+</p>
+
+<p>
+为什么不用「行」和「列」？因为维度一旦超过 2，「行」「列」就不够用了——
+三维张量没有第三个数可以叫。用数字编号，不管几维都能一直数下去。
+</p>
+
+<p>
+那为什么函数非要你写 axis？因为不写就有歧义。一张 3×4 的表求和，
+是每列各求一个和（得 4 个数），还是每行各求一个和（得 3 个数）？
+两种都说得通，numpy 不替你猜。
+</p>
+
+<div class="callout key">
+  <span class="label">要点</span>
+  <p><b>axis 就是「数组的第几个方向」，从 0 开始数。</b>
+  一维数组只有一个轴（axis 0），二维有两个，三维有三个。
+  判断结果形状的规则只有一条：<b>哪个轴被操作了，结果里就没有它。</b></p>
+</div>
 
 <table>
 <thead><tr><th>动作</th><th>作用</th><th>在注意力里的位置</th></tr></thead>
@@ -116,7 +157,7 @@ q 代表「我现在想找一个函数名」，那么内积大就表示「我现
 <tr><td><code>@</code> / <code>np.matmul</code></td><td>矩阵乘（批量也支持）</td><td>式(1) 的 <code>Q @ K.T</code></td></tr>
 <tr><td><code>.sum(axis=)</code></td><td>沿某轴求和</td><td>softmax 的分母</td></tr>
 <tr><td><code>.max(axis=)</code></td><td>沿某轴取最大</td><td>softmax 减 max</td></tr>
-<tr><td>广播</td><td>形状不同的数组自动对齐</td><td><code>scores / sqrt(d_k)</code></td></tr>
+<tr><td>广播</td><td>形状不同的数组自动对齐（下面单独讲）</td><td><code>scores / sqrt(d_k)</code></td></tr>
 </tbody>
 </table>
 

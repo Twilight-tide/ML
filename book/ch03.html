@@ -140,7 +140,13 @@ L = −Σ<sub>i</sub> y<sub>i</sub> log p<sub>i</sub>
 
 <h2>3.4 那个干净得不像话的梯度</h2>
 
-<p>现在推一个全书最重要的公式。设 logits 为 <i class="v">z</i>，经过 softmax 得到 <i class="v">p</i>，损失是交叉熵：</p>
+<p>
+现在推一个全书最重要的公式。先把上一节那个 <i class="v">z</i> 正式命名：
+<b>模型最后一层输出的原始分数叫 logits</b>，它可以是任意实数，还不是概率；
+softmax 把它变成概率 <i class="v">p</i>。分数和概率，从此分开。
+</p>
+
+<p>设 logits 为 <i class="v">z</i>，经过 softmax 得到 <i class="v">p</i>，损失用交叉熵：</p>
 
 <div class="eq">
 p<sub>i</sub> = e<sup>z<sub>i</sub></sup> / Σ<sub>j</sub> e<sup>z<sub>j</sub></sup>，
