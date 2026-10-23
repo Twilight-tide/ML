@@ -1,0 +1,251 @@
+/* ============================================================
+   一本书的排版
+   设计约束：离线可用（无 CDN）、浅色纸感、可打印
+   ============================================================ */
+
+:root{
+  --paper:#fcfbf7;
+  --surface:#ffffff;
+  --ink:#191714;
+  --ink-2:#494338;
+  --ink-3:#8b8375;
+  --rule:#e6e0d2;
+  --rule-soft:#efeade;
+  --accent:#3d4fb3;
+  --accent-weak:#eef0fa;
+  --amber:#a85a08;
+  --amber-weak:#fdf4e6;
+  --green:#2a6a49;
+  --green-weak:#eaf3ee;
+  --code-bg:#f6f4ec;
+  --mono:ui-monospace,"SF Mono","Cascadia Code",Consolas,"Liberation Mono",monospace;
+  --serif:Georgia,"Times New Roman","Songti SC","SimSun",serif;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei","PingFang SC",system-ui,sans-serif;
+}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
+body{
+  margin:0;background:var(--paper);color:var(--ink);
+  font-family:var(--sans);font-size:16.5px;line-height:1.85;
+  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+}
+
+/* ---------- 顶部细进度条 ---------- */
+#readbar{position:fixed;top:0;left:0;height:2px;width:0;background:var(--accent);z-index:100;transition:width .1s linear}
+
+/* ---------- 布局 ---------- */
+.layout{display:grid;grid-template-columns:248px minmax(0,1fr);gap:64px;max-width:1140px;margin:0 auto;padding:0 32px}
+main{min-width:0;padding:52px 0 96px;max-width:740px}
+
+/* ---------- 侧栏目录 ---------- */
+nav.toc{
+  position:sticky;top:0;height:100vh;overflow-y:auto;
+  padding:44px 0 40px;border-right:1px solid var(--rule-soft);
+  font-size:13px;line-height:1.5;
+}
+nav.toc::-webkit-scrollbar{width:4px}
+nav.toc::-webkit-scrollbar-thumb{background:#ddd6c7;border-radius:99px}
+.toc-brand{font-family:var(--serif);font-size:14px;font-weight:600;letter-spacing:.02em;margin-bottom:4px;color:var(--ink)}
+.toc-brand a{color:inherit;border:none}
+.toc-sub{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:26px}
+.toc-group{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin:22px 0 8px;padding-left:2px}
+nav.toc a{
+  display:flex;gap:9px;align-items:baseline;
+  padding:5px 8px 5px 2px;border-radius:5px;color:var(--ink-2);
+  text-decoration:none;border-left:2px solid transparent;
+  transition:color .15s,background .15s,border-color .15s;
+}
+nav.toc a:hover{color:var(--ink);background:#f4f1e8}
+nav.toc a.active{color:var(--accent);border-left-color:var(--accent);background:var(--accent-weak);font-weight:600}
+nav.toc a .num{font-size:11px;color:var(--ink-3);min-width:16px;font-variant-numeric:tabular-nums}
+nav.toc a.active .num{color:var(--accent)}
+nav.toc a.done::after{content:"✓";margin-left:auto;color:var(--green);font-size:11px}
+
+/* ---------- 章节头 ---------- */
+.chap-head{margin-bottom:44px;padding-bottom:28px;border-bottom:1px solid var(--rule)}
+.chap-no{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--accent);font-weight:600;margin-bottom:14px}
+.chap-head h1{font-size:33px;line-height:1.28;margin:0 0 14px;font-weight:700;letter-spacing:-.02em}
+.chap-sub{font-size:15px;color:var(--ink-3);margin:0;line-height:1.7}
+.chap-meta{display:flex;gap:18px;margin-top:18px;font-size:11.5px;color:var(--ink-3);flex-wrap:wrap}
+.chap-meta span{display:flex;align-items:center;gap:5px}
+
+/* ---------- 正文 ---------- */
+h2{
+  font-size:21px;font-weight:650;letter-spacing:-.01em;
+  margin:2.6em 0 .8em;padding-top:.2em;
+}
+h2:first-of-type{margin-top:1.6em}
+h3{font-size:16.5px;font-weight:650;margin:2em 0 .5em;color:var(--ink)}
+p{margin:1.05em 0}
+strong{font-weight:650;color:var(--ink)}
+em{font-style:normal;background:linear-gradient(transparent 62%,#fdf0c9 62%);padding:0 1px}
+a{color:var(--accent);text-decoration:none;border-bottom:1px solid rgba(61,79,179,.22)}
+a:hover{border-bottom-color:var(--accent)}
+ul,ol{padding-left:1.35em;margin:1em 0}
+li{margin:.4em 0}
+li::marker{color:var(--ink-3)}
+hr{border:none;border-top:1px solid var(--rule);margin:2.5em 0}
+
+/* 首字下沉 */
+.lead{font-size:17.5px;color:var(--ink-2);line-height:1.8}
+.lead::first-letter{
+  float:left;font-family:var(--serif);font-size:54px;line-height:.86;
+  padding:6px 10px 0 0;color:var(--accent);font-weight:600;
+}
+
+/* ---------- 代码 ---------- */
+code{font-family:var(--mono);font-size:.875em;background:#f2efe6;padding:1.5px 5px;border-radius:4px;color:#4a3f2f}
+pre{
+  background:var(--code-bg);border-left:2.5px solid #d8d1be;
+  padding:16px 20px;overflow-x:auto;border-radius:0 7px 7px 0;
+  margin:1.4em 0;font-size:13px;line-height:1.72;
+}
+pre code{background:none;padding:0;font-size:inherit;color:#33302a}
+pre .c{color:#8b8375;font-style:italic}       /* 注释 */
+pre .k{color:#a04a8a;font-weight:600}          /* 关键字 */
+pre .s{color:#2a6a49}                          /* 字符串 */
+pre .n{color:#3d4fb3}                          /* 数字 / 强调 */
+pre .fn{color:#8a5a1a}                         /* 函数名 */
+
+.code-caption{font-size:11.5px;color:var(--ink-3);margin:-.6em 0 1.6em;padding-left:2px}
+
+/* ---------- 公式 ---------- */
+.eq{
+  font-family:var(--serif);font-size:16.5px;text-align:center;
+  margin:1.6em 0;padding:18px 16px;background:#f8f6ee;
+  border-radius:8px;overflow-x:auto;line-height:1.9;
+}
+.eq .where{font-family:var(--sans);font-size:12.5px;color:var(--ink-3);display:block;margin-top:8px}
+.eq-num{float:right;font-family:var(--sans);font-size:12px;color:var(--ink-3)}
+i.v{font-family:var(--serif);font-style:italic}
+
+/* ---------- 提示块 ---------- */
+.callout{
+  margin:1.7em 0;padding:15px 19px;border-radius:0 8px 8px 0;
+  border-left:3px solid var(--accent);background:var(--accent-weak);
+  font-size:14.5px;line-height:1.75;
+}
+.callout .label{
+  display:block;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;
+  font-weight:700;color:var(--accent);margin-bottom:6px;
+}
+.callout p:first-of-type{margin-top:0}
+.callout p:last-child{margin-bottom:0}
+.callout.key{border-color:var(--accent);background:var(--accent-weak)}
+.callout.key .label{color:var(--accent)}
+.callout.warn{border-color:var(--amber);background:var(--amber-weak)}
+.callout.warn .label{color:var(--amber)}
+.callout.tip{border-color:var(--green);background:var(--green-weak)}
+.callout.tip .label{color:var(--green)}
+
+/* ---------- 表格 ---------- */
+table{width:100%;border-collapse:collapse;margin:1.6em 0;font-size:13.5px;line-height:1.6}
+caption{caption-side:top;text-align:left;font-size:11.5px;color:var(--ink-3);padding-bottom:8px}
+th{
+  text-align:left;padding:9px 10px;font-weight:650;font-size:11.5px;
+  letter-spacing:.05em;color:var(--ink-3);border-bottom:1.5px solid var(--rule);
+  text-transform:uppercase;white-space:nowrap;
+}
+td{padding:9px 10px;border-bottom:1px solid var(--rule-soft);vertical-align:top}
+tr:last-child td{border-bottom:1.5px solid var(--rule)}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;font-family:var(--mono);font-size:12.5px}
+
+/* ---------- 图示（纯 CSS 盒子） ---------- */
+figure{margin:2em 0;text-align:center}
+figure svg{max-width:100%;height:auto}
+figcaption{font-size:11.5px;color:var(--ink-3);margin-top:10px;text-align:center}
+.diagram{display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap;padding:22px 12px;background:#f8f6ee;border-radius:8px;font-size:12px}
+.box{background:#fff;border:1px solid var(--rule);border-radius:6px;padding:8px 12px;color:var(--ink-2);box-shadow:0 1px 2px rgba(0,0,0,.03)}
+.box.accent{border-color:#b9c0e8;background:var(--accent-weak);color:var(--accent);font-weight:600}
+.arrow{color:var(--ink-3);font-size:14px}
+
+/* ---------- 章末 ---------- */
+.endmatter{margin-top:56px;border-top:1px solid var(--rule);padding-top:30px}
+.endmatter h3{
+  font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--ink-3);margin:0 0 12px;font-weight:700;
+}
+.takeaway{background:var(--surface);border:1px solid var(--rule);border-radius:10px;padding:18px 22px;margin-bottom:30px}
+.takeaway ol{margin:0;padding-left:1.2em;font-size:14.5px}
+.takeaway li{margin:.5em 0}
+.exercises ol{font-size:14.5px}
+.exercises li{margin:.7em 0}
+.exercises .hint{display:block;font-size:12.5px;color:var(--ink-3);margin-top:3px}
+
+/* ---------- 章节导航 ---------- */
+.chapnav{display:flex;gap:16px;margin-top:64px;padding-top:26px;border-top:1px solid var(--rule)}
+.chapnav a{
+  flex:1;border:1px solid var(--rule);border-radius:10px;background:var(--surface);
+  padding:14px 18px;text-decoration:none;border-bottom:1px solid var(--rule);
+  transition:border-color .2s,transform .2s,box-shadow .2s;
+}
+.chapnav a:hover{border-color:#c9c0a9;transform:translateY(-1px);box-shadow:0 4px 14px rgba(25,23,20,.06)}
+.chapnav .dir{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);display:block;margin-bottom:3px}
+.chapnav .ttl{font-size:14px;color:var(--ink);font-weight:600;line-height:1.4}
+.chapnav a.next{text-align:right}
+
+/* 标记已读 */
+.markread{
+  display:inline-flex;align-items:center;gap:8px;margin-top:26px;
+  background:var(--surface);border:1px solid var(--rule);border-radius:99px;
+  padding:8px 18px;font-size:13px;color:var(--ink-2);cursor:pointer;
+  font-family:inherit;transition:all .2s;
+}
+.markread:hover{border-color:var(--green);color:var(--green)}
+.markread.on{background:var(--green-weak);border-color:#b9d8c7;color:var(--green);font-weight:600}
+
+/* ---------- 封面 ---------- */
+.cover{max-width:760px;margin:0 auto;padding:0 32px}
+.cover-inner{min-height:100vh;display:flex;flex-direction:column;justify-content:center;padding:80px 0}
+.cover .kicker{font-size:11px;letter-spacing:.24em;text-transform:uppercase;color:var(--ink-3);margin-bottom:40px}
+.cover h1{font-size:clamp(38px,5.4vw,56px);line-height:1.16;margin:0 0 6px;font-weight:700;letter-spacing:-.03em}
+.cover h1 .thin{display:block;font-weight:300;color:var(--ink-3);font-size:.52em;letter-spacing:.02em;margin-top:18px;line-height:1.5}
+.cover .rule{width:56px;height:2px;background:var(--accent);margin:36px 0}
+.cover .abstract{font-size:15.5px;color:var(--ink-2);max-width:520px;line-height:1.85}
+.cover .meta{display:flex;gap:34px;margin-top:52px;flex-wrap:wrap}
+.cover .meta div{font-size:12px;color:var(--ink-3)}
+.cover .meta b{display:block;font-size:21px;color:var(--ink);font-weight:600;letter-spacing:-.01em;margin-bottom:2px}
+
+/* 目录卡片 */
+.toc-cards{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:2em 0}
+.toc-card{
+  display:block;background:var(--surface);border:1px solid var(--rule);border-radius:9px;
+  padding:14px 16px;text-decoration:none;border-bottom:1px solid var(--rule);transition:all .18s;
+}
+.toc-card:hover{border-color:#c9c0a9;transform:translateY(-1px);box-shadow:0 4px 12px rgba(25,23,20,.05)}
+.toc-card .n{font-size:10.5px;letter-spacing:.12em;color:var(--accent);font-weight:700;text-transform:uppercase}
+.toc-card .t{display:block;font-size:14px;font-weight:600;color:var(--ink);margin:3px 0 2px;line-height:1.45}
+.toc-card .d{font-size:11.5px;color:var(--ink-3);line-height:1.5}
+
+/* ---------- 打印 ---------- */
+@media print{
+  body{background:#fff;font-size:11pt;line-height:1.6}
+  .layout{display:block;max-width:none;padding:0}
+  nav.toc,#readbar,.markread,.chapnav{display:none}
+  main{max-width:none;padding:0}
+  pre,table,.callout,.eq{page-break-inside:avoid}
+  h2{page-break-after:avoid}
+  a{color:inherit;border:none}
+  .chap-head{page-break-after:avoid}
+}
+
+/* ---------- 移动端 ---------- */
+@media(max-width:900px){
+  .layout{display:block;padding:0 22px}
+  nav.toc{
+    position:static;height:auto;border-right:none;border-bottom:1px solid var(--rule);
+    padding:20px 0;font-size:12.5px;margin-bottom:8px;
+  }
+  nav.toc .toc-list{display:flex;flex-wrap:wrap;gap:2px}
+  nav.toc a{padding:4px 8px;border-left:none}
+  nav.toc a.active{background:var(--accent-weak)}
+  nav.toc a.done::after{display:none}
+  .toc-group{display:none}
+  .toc-sub{margin-bottom:12px}
+  main{padding:28px 0 72px}
+  .chap-head h1{font-size:26px}
+  .toc-cards{grid-template-columns:1fr}
+  .chapnav{flex-direction:column}
+  .cover-inner{min-height:auto;padding:60px 0}
+}

@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第 4 章 · 神经网络与反向传播 | 读懂 Transformer</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="readbar"></div>
+
+<div class="layout">
+<nav class="toc" id="toc">
+  <div class="toc-brand"><a href="index.html">读懂 Transformer</a></div>
+  <div class="toc-sub">2026 · 第一版</div>
+</nav>
+<main>
+
+<header class="chap-head">
+  <div class="chap-no">Chapter 4</div>
+  <h1>神经网络与反向传播</h1>
+  <p class="chap-sub">手写一个自动微分引擎，然后手写矩阵求导</p>
+  <div class="chap-meta">
+    <span>约 2–3 周</span>
+    <span>全书最关键的一章</span>
+    <span>对应 W5–W6</span>
+  </div>
+</header>
+
+<p class="lead">
+这一章是全书的关卡。前面三章你还能靠直觉蒙混过去，从这里开始不行了。
+读完它，你应该能在白纸上写出一个两层网络的完整反向传播，包括每一个矩阵的形状。
+做不到，就先别往下走——第五章之后的每一行代码，都建立在这套推导上。
+</p>
+
+<h2>4.1 为什么一层不够</h2>
+
+<p>先回答一个容易被跳过的问题：既然线性层加 sigmoid 已经能做分类，为什么还要堆两层、六层、九十六层？</p>
+
+<p>因为<b>线性变换的复合还是线性变换</b>：</p>
+
+<div class="eq">
+<i class="v">W</i><sub>2</sub>(<i class="v">W</i><sub>1</sub><i class="v">x</i>) = (<i class="v">W</i><sub>2</sub><i class="v">W</i><sub>1</sub>)<i class="v">x</i> = <i class="v">W</i><i class="v">x</i>
+</div>
+
+<p>
+两个线性层叠起来，等价于一个线性层。堆一百层也一样。所以<b>深度本身不带来任何表达能力</b>，
+直到你在中间插入一个非线性函数。
+</p>
+
+<p>这就是激活函数存在的全部理由。它不是「模仿神经元放电」这种浪漫说法，而是一个数学上的必需：
+<b>没有它，网络退化成一个线性模型。</b>
+</p>
+
+<div class="callout key">
+  <span class="label">要点</span>
+  <p>深度 + 非线性 = 表达能力。缺一个都不行。
+  论文里 FFN 用 ReLU（式 2），注意力里的 softmax 也是非线性——<b>整个 Transformer 的非线性全靠这两处</b>。</p>
+</div>
+
+<h2>4.2 一个神经元的三种写法</h2>
+
+<p>同一个计算，三种写法，都要认得出是同一个东西：</p>
+
+<div class="eq">
+z = <i class="v">w</i> · <i class="v">x</i> + b　　⟺　　 z = Σ<sub>i</sub> w<sub>i</sub>x<sub>i</sub> + b　　⟺　　 z = <i class="v">Wx</i> + <i class="v">b</i>
+<span class="where">标量内积 / 逐元素求和 / 矩阵形式（一次算一个 batch）</span>
+</div>
+
+<p>
+左边是教科书里的写法，右边是代码里的写法。<b>它们的区别只是「一次算一个样本」还是「一次算一批」。</b>
+第三种的 <i class="v">W</i> 形状是 (d<sub>out</sub>, d<sub>in</sub>)，<i class="v">x</i> 是 (n, d<sub>in</sub>)，
+结果是 (n, d<sub>out</sub>)——注意 PyTorch 的 <code>nn.Linear</code> 存的就是这个方向的 W，
+所以它内部算的是 <code>x @ W.T + b</code>。
+</p>
+
+<h2>4.3 计算图：把复合函数拆成加法乘法</h2>
+
+<p>看这个函数：</p>
+
+<div class="eq">
+L = (a·b + c) · d
+</div>
+
+<p>它可以画成一张图：</p>
+
+<div class="diagram">
+  <div class="box">a</div><span class="arrow">·</span><div class="box">b</div>
+  <span class="arrow">→</span><div class="box">a·b</div>
+  <span class="arrow">+</span><div class="box">c</div>
+  <span class="arrow">→</span><div class="box">a·b+c</div>
+  <span class="arrow">·</span><div class="box">d</div>
+  <span class="arrow">→</span><div class="box accent">L</div>
+</div>
+
+<p>
+反向传播就是<b>从 L 出发，沿着箭头倒着走，把每一步的局部导数乘起来</b>。
+链式法则说：
+</p>
+
+<div class="eq">
+∂L/∂a = ∂L/∂(a·b) · ∂(a·b)/∂a
+</div>
+
+<p>
+关键在于：每个节点只需要知道「我的输出对输入的局部导数」，然后<b>把上游传来的梯度乘上去，再往下传</b>。
+它不需要知道整个函数长什么样。
+</p>
+
+<p>
+这就是为什么自动微分能对任意深的网络工作：<b>你只需要为每种运算定义一次局部导数</b>
+（加法、乘法、ReLU、exp、matmul……），剩下的由引擎自动串起来。
+</p>
+
+<h2>4.4 手写一个自动微分引擎</h2>
+
+<p>
+下面这段代码不到 60 行，但它是 PyTorch 的核心。Andrej Karpathy 的 micrograd 就是这个思路，
+这里做了精简但保持可运行。
+</p>
+
+<pre><code><span class="k">class</span> <span class="fn">Value</span>:
+    <span class="s">"""一个标量，同时记录它从哪来、怎么反传。"""</span>
+
+    <span class="k">def</span> <span class="fn">__init__</span>(self, data, children=(), op=<span class="s">""</span>):
+        self.data = data
+        self.grad = <span class="n">0.0</span>                      <span class="c"># dL/d(self)，初始为 0</span>
+        self._backward = <span class="k">lambda</span>: <span class="k">None</span>
+        self._prev = set(children)          <span class="c"># 计算图上的父节点</span>
+        self._op = op
+
+    <span class="k">def</span> <span class="fn">__add__</span>(self, other):
+        other = other <span class="k">if</span> isinstance(other, Value) <span class="k">else</span> Value(other)
+        out = Value(self.data + other.data, (self, other), <span class="s">"+"</span>)
+
+        <span class="k">def</span> <span class="fn">_backward</span>():
+            <span class="c"># 加法把梯度原样分给两边（注意用 +=，因为一个节点可能有多个消费者）</span>
+            self.grad  += out.grad
+            other.grad += out.grad
+        out._backward = _backward
+        <span class="k">return</span> out
+
+    <span class="k">def</span> <span class="fn">__mul__</span>(self, other):
+        other = other <span class="k">if</span> isinstance(other, Value) <span class="k">else</span> Value(other)
+        out = Value(self.data * other.data, (self, other), <span class="s">"*"</span>)
+
+        <span class="k">def</span> <span class="fn">_backward</span>():
+            <span class="c"># 乘法：梯度乘以对方的数值</span>
+            self.grad  += other.data * out.grad
+            other.grad += self.data  * out.grad
+        out._backward = _backward
+        <span class="k">return</span> out
+
+    <span class="k">def</span> <span class="fn">relu</span>(self):
+        out = Value(max(<span class="n">0.0</span>, self.data), (self,), <span class="s">"relu"</span>)
+
+        <span class="k">def</span> <span class="fn">_backward</span>():
+            <span class="c"># 负数区梯度为 0，正数区原样通过</span>
+            self.grad += (out.data &gt; <span class="n">0</span>) * out.grad
+        out._backward = _backward
+        <span class="k">return</span> out
+
+    <span class="k">def</span> <span class="fn">backward</span>(self):
+        <span class="c"># 1) 拓扑排序：保证每个节点在被用到之前已经算完</span>
+        topo, visited = [], set()
+
+        <span class="k">def</span> <span class="fn">build</span>(v):
+            <span class="k">if</span> v <span class="k">not in</span> visited:
+                visited.add(v)
+                <span class="k">for</span> child <span class="k">in</span> v._prev:
+                    build(child)
+                topo.append(v)
+
+        build(self)
+
+        <span class="c"># 2) 从输出往回，逐个调用局部导数</span>
+        self.grad = <span class="n">1.0</span>            <span class="c"># dL/dL = 1</span>
+        <span class="k">for</span> node <span class="k">in</span> reversed(topo):
+            node._backward()
+
+    <span class="c"># 让 Value 支持 a - b、-a、a + 1 这类写法</span>
+    <span class="k">def</span> <span class="fn">__neg__</span>(self):        <span class="k">return</span> self * <span class="n">-1</span>
+    <span class="k">def</span> <span class="fn">__sub__</span>(self, other): <span class="k">return</span> self + (-other)
+    <span class="k">def</span> <span class="fn">__radd__</span>(self, other): <span class="k">return</span> self + other
+    <span class="k">def</span> <span class="fn">__rmul__</span>(self, other): <span class="k">return</span> self * other
+    <span class="k">def</span> <span class="fn">__repr__</span>(self):       <span class="k">return</span> <span class="s">f"Value(data={self.data:.4f}, grad={self.grad:.4f})"</span></code></pre>
+
+<p>验证它和 PyTorch 一致：</p>
+
+<pre><code><span class="k">import</span> torch
+
+<span class="c"># 同一个表达式：L = (a*b + c) * d</span>
+a, b, c, d = Value(<span class="n">2.0</span>), Value(<span class="n">-3.0</span>), Value(<span class="n">10.0</span>), Value(<span class="n">-2.0</span>)
+L = (a * b + c) * d
+L.backward()
+<span class="k">print</span>(a.grad, b.grad, c.grad, d.grad)
+<span class="c"># 6.0 -4.0 -2.0 4.0</span>
+
+ta = torch.tensor(<span class="n">2.0</span>, requires_grad=<span class="k">True</span>)
+tb = torch.tensor(<span class="n">-3.0</span>, requires_grad=<span class="k">True</span>)
+tc = torch.tensor(<span class="n">10.0</span>, requires_grad=<span class="k">True</span>)
+td = torch.tensor(<span class="n">-2.0</span>, requires_grad=<span class="k">True</span>)
+tl = (ta * tb + tc) * td
+tl.backward()
+<span class="k">print</span>(ta.grad, tb.grad, tc.grad, td.grad)</code></pre>
+
+<p>
+两行输出应该完全一致。<b>PyTorch 的 <code>autograd</code> 本质上就是这个类，只是它操作的是张量而不是标量，
+并且用 C++ 实现以追求速度。</b>
+</p>
+
+<div class="callout warn">
+  <span class="label">陷阱</span>
+  <p>注意 <code>+=</code> 而不是 <code>=</code>。如果一个节点被用了两次（比如 <code>y = x * x</code>），
+  梯度必须<b>累加</b>。写成 <code>=</code> 会让第二次覆盖第一次，结果只有正确值的一半。
+  这是手写 autograd 最经典的 bug。</p>
+</div>
+
+<h2>4.5 两层 MLP 的矩阵反向传播</h2>
+
+<p>标量版本好懂，但真实网络操作的是矩阵。现在把同样的思路扩到矩阵，这部分必须亲手推一遍。</p>
+
+<h3>前向</h3>
+
+<div class="eq">
+<i class="v">H</i> = ReLU(<i class="v">XW</i><sub>1</sub> + <i class="v">b</i><sub>1</sub>)<br>
+<i class="v">Z</i> = <i class="v">HW</i><sub>2</sub> + <i class="v">b</i><sub>2</sub><br>
+L = CrossEntropy(softmax(<i class="v">Z</i>), <i class="v">Y</i>)
+</div>
+
+<p>形状（n 个样本，d 维输入，h 维隐藏，c 类）：</p>
+
+<table>
+<thead><tr><th>张量</th><th>形状</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><i class="v">X</i></td><td class="num">(n, d)</td><td>输入</td></tr>
+<tr><td><i class="v">W</i><sub>1</sub></td><td class="num">(d, h)</td><td>第一层权重</td></tr>
+<tr><td><i class="v">H</i></td><td class="num">(n, h)</td><td>隐藏层激活</td></tr>
+<tr><td><i class="v">W</i><sub>2</sub></td><td class="num">(h, c)</td><td>第二层权重</td></tr>
+<tr><td><i class="v">Z</i></td><td class="num">(n, c)</td><td>logits</td></tr>
+</tbody>
+</table>
+
+<h3>反向，一步一步</h3>
+
+<p><b>第 0 步：损失对 logits 的梯度。</b>直接用第 3 章的结论，并对 batch 取平均：</p>
+
+<div class="eq">
+d<i class="v">Z</i> = (softmax(<i class="v">Z</i>) − <i class="v">Y</i>) / n　　<span class="eq-num">形状 (n, c)</span>
+</div>
+
+<p><b>第 1 步：对 W₂ 和 b₂。</b>因为 <i class="v">Z</i> = <i class="v">HW</i><sub>2</sub> + <i class="v">b</i><sub>2</sub>，
+所以 ∂Z/∂W₂ = H，梯度是「上游梯度左乘 H 的转置」：</p>
+
+<div class="eq">
+d<i class="v">W</i><sub>2</sub> = <i class="v">H</i><sup>T</sup> d<i class="v">Z</i>　　<span class="eq-num">(h,n)(n,c) → (h,c) ✓</span><br>
+d<i class="v">b</i><sub>2</sub> = Σ<sub>行</sub> d<i class="v">Z</i>　　<span class="eq-num">沿 batch 维求和 → (c,)</span>
+</div>
+
+<div class="callout key">
+  <span class="label">要点</span>
+  <p>记住这个形状检验法：<b>梯度的形状必须和参数本身一致</b>。
+  W₂ 是 (h, c)，dW₂ 也必须是 (h, c)。而 H<sup>T</sup>dZ 是 (h,n)(n,c)=(h,c)，刚好对上。
+  如果你推出来的形状不对，不用往下看，肯定错了。</p>
+</div>
+
+<p><b>第 2 步：传到隐藏层。</b></p>
+
+<div class="eq">
+d<i class="v">H</i> = d<i class="v">Z</i> <i class="v">W</i><sub>2</sub><sup>T</sup>　　<span class="eq-num">(n,c)(c,h) → (n,h) ✓</span>
+</div>
+
+<p><b>第 3 步：穿过 ReLU。</b>ReLU 的导数是一个 0/1 掩码，逐元素相乘：</p>
+
+<div class="eq">
+d<i class="v">H</i><sub>pre</sub> = d<i class="v">H</i> ⊙ 𝟙[<i class="v">H</i> &gt; 0]
+</div>
+
+<p><b>第 4 步：对 W₁ 和 b₁。</b>和第 1 步完全对称：</p>
+
+<div class="eq">
+d<i class="v">W</i><sub>1</sub> = <i class="v">X</i><sup>T</sup> d<i class="v">H</i><sub>pre</sub>　　<span class="eq-num">(d,n)(n,h) → (d,h) ✓</span><br>
+d<i class="v">b</i><sub>1</sub> = Σ<sub>行</sub> d<i class="v">H</i><sub>pre</sub>　　<span class="eq-num">→ (h,)</span>
+</div>
+
+<p>
+推完了。整个过程只有两个模式在重复：<b>「梯度 = 上游梯度 × 本地导数」</b> 和 <b>「权重梯度 = 输入转置 × 上游梯度」</b>。
+六层的 Transformer 也是这两句话，只是重复更多次、中间多了注意力和 LayerNorm。
+</p>
+
+<h2>4.6 numpy 版与 PyTorch 版</h2>
+
+<p>为了让你确认自己真的懂，最有效的办法是用两种方式实现同一个网络，然后对比 loss 曲线。</p>
+
+<h3>numpy 版（核心部分）</h3>
+
+<pre><code><span class="k">def</span> <span class="fn">train_mlp_numpy</span>(X, Y, d=<span class="n">64</span>, h=<span class="n">128</span>, c=<span class="n">10</span>, lr=<span class="n">0.1</span>, steps=<span class="n">2000</span>):
+    n = X.shape[<span class="n">0</span>]
+    <span class="c"># He 初始化：方差 2/fan_in，配合 ReLU</span>
+    W1 = np.random.randn(d, h) * np.sqrt(<span class="n">2.0</span> / d)
+    b1 = np.zeros(h)
+    W2 = np.random.randn(h, c) * np.sqrt(<span class="n">2.0</span> / h)
+    b2 = np.zeros(c)
+
+    <span class="k">for</span> step <span class="k">in</span> range(steps):
+        <span class="c"># ---- 前向 ----</span>
+        Hpre = X @ W1 + b1
+        H = np.maximum(<span class="n">0</span>, Hpre)
+        Z = H @ W2 + b2
+        P = softmax(Z)
+
+        <span class="c"># ---- 反向 ----</span>
+        dZ = (P - Y) / n                    <span class="c"># (n, c)</span>
+        dW2 = H.T @ dZ                      <span class="c"># (h, c)</span>
+        db2 = dZ.sum(<span class="n">0</span>)
+        dH = dZ @ W2.T                      <span class="c"># (n, h)</span>
+        dHpre = dH * (Hpre &gt; <span class="n">0</span>)           <span class="c"># ReLU 掩码</span>
+        dW1 = X.T @ dHpre                   <span class="c"># (d, h)</span>
+        db1 = dHpre.sum(<span class="n">0</span>)
+
+        <span class="c"># ---- 更新 ----</span>
+        W1 -= lr * dW1;  b1 -= lr * db1
+        W2 -= lr * dW2;  b2 -= lr * db2
+
+    <span class="k">return</span> W1, b1, W2, b2</code></pre>
+
+<h3>PyTorch 版</h3>
+
+<pre><code><span class="k">import</span> torch.nn <span class="k">as</span> nn
+
+model = nn.Sequential(
+    nn.Linear(<span class="n">64</span>, <span class="n">128</span>),
+    nn.ReLU(),
+    nn.Linear(<span class="n">128</span>, <span class="n">10</span>),
+)
+opt = torch.optim.SGD(model.parameters(), lr=<span class="n">0.1</span>)
+lossf = nn.CrossEntropyLoss()
+
+<span class="k">for</span> step <span class="k">in</span> range(<span class="n">2000</span>):
+    logits = model(x)
+    loss = lossf(logits, y)
+    opt.zero_grad()
+    loss.backward()      <span class="c"># ← 这里，numpy 版你手写的那 7 行</span>
+    opt.step()</code></pre>
+
+<p>
+PyTorch 版只有 5 行。<b><code>loss.backward()</code> 就是你在 4.5 节推的那整套东西</b>，
+它由 60 行 C++ 完成，但逻辑一模一样。
+</p>
+
+<div class="callout key">
+  <span class="label">要点</span>
+  <p>当你能把 <code>loss.backward()</code> 展开成 7 行 numpy 时，你就不再是「调包的人」了。
+  后面读论文里任何复杂的梯度流（残差怎么传、LayerNorm 怎么反传），你都有能力自己推。</p>
+</div>
+
+<h2>4.7 两个会让训练彻底失败的细节</h2>
+
+<h3>初始化</h3>
+
+<p>
+如果所有权重初始化为 0，那么同一层的所有神经元永远算出相同的东西，梯度也相同，等于只有 1 个神经元。
+所以必须随机初始化。但方差不重要——太小信号衰减，太大信号爆炸。
+</p>
+
+<p>ReLU 网络的常用选择是 He 初始化：</p>
+
+<div class="eq">
+<i class="v">W</i> ∼ 𝒩(0, 2/d<sub>in</sub>)
+<span class="where">本项目 <code>src/model.py</code> 用的是 std=0.02 的正态，这也是 GPT 系列的惯例</span>
+</div>
+
+<h3>梯度消失与梯度爆炸</h3>
+
+<p>
+反向传播是连乘。如果每一层的局部导数平均小于 1，乘 50 层就趋近于 0；大于 1 就炸成 inf。
+</p>
+
+<div class="eq">
+∂L/∂<i class="v">h</i><sub>1</sub> = ∂L/∂<i class="v">h</i><sub>50</sub> · ∏<sub>i=1..49</sub> ∂<i class="v">h</i><sub>i+1</sub>/∂<i class="v">h</i><sub>i</sub>
+</div>
+
+<p>
+0.9<sup>50</sup> ≈ 0.005，1.1<sup>50</sup> ≈ 117。<b>只要每层差 10%，50 层后就是两个数量级。</b>
+</p>
+
+<p>这直接引出 Transformer 的两个设计：</p>
+
+<ul>
+<li><b>残差连接</b>（第 8 章）：<i class="v">x</i> + f(<i class="v">x</i>) 的导数含一个恒等项 +1，保证梯度有「高速公路」直达浅层。</li>
+<li><b>LayerNorm</b>（第 8 章）：把每层输出归一化到稳定范围，避免数值尺度逐层漂移。</li>
+</ul>
+
+<p>论文里这两样东西各出现两次（每个子层一次），不是随便加的。</p>
+
+<div class="endmatter">
+
+<div class="takeaway">
+  <h3>本章要点</h3>
+  <ol>
+    <li>线性层堆叠仍是线性，<b>深度必须配非线性才有意义</b>。</li>
+    <li>反向传播 = 拓扑排序 + 每个节点调用自己的局部导数 + <b>累加</b>梯度。</li>
+    <li>两个反复出现的模式：<b>权重梯度 = 输入转置 × 上游梯度</b>；<b>输入梯度 = 上游梯度 × 权重转置</b>。</li>
+    <li>形状检验法：梯度的形状必须和参数完全一致，对不上就是推错了。</li>
+    <li>连乘导致梯度消失/爆炸。残差和 LayerNorm 就是为此而生。</li>
+  </ol>
+</div>
+
+<div class="exercises">
+  <h3>习题</h3>
+  <ol>
+    <li>把 <code>Value</code> 类补全 <code>__pow__</code>（用于 x²）和 <code>exp</code>，然后用它算
+        <code>L = (a**2 + b).exp()</code>，和 PyTorch 对比。</li>
+    <li>把 4.5 节的 numpy 反向传播抄一遍，<b>不看公式</b>，只看形状。</li>
+    <li>在 numpy 版里把 <code>dHpre = dH * (Hpre > 0)</code> 改成 <code>dH</code>（即漏掉 ReLU 的导数），
+        训练 2000 步。loss 会怎样？为什么？</li>
+    <li>把初始化标准差从 <code>sqrt(2/d)</code> 改成 0.001，观察训练。再改成 10，观察。
+        <span class="hint">前者梯度消失，后者直接 nan。</span></li>
+    <li>用 <code>load_digits()</code>（8×8 手写数字，10 类）跑通两版代码，把两条 loss 曲线画在一起。
+        它们应该几乎重合——不重合就检查初始化是否相同。</li>
+    <li>（思考）为什么 <code>db2 = dZ.sum(0)</code> 是沿第 0 维求和，而 <code>dW2 = H.T @ dZ</code> 要转置？
+        <span class="hint">从形状和「b 被广播到每个样本」两个角度各解释一次。</span></li>
+  </ol>
+</div>
+
+<button class="markread" id="markread">○ 标记本章已读</button>
+
+<div class="chapnav" id="chapnav"></div>
+
+</div>
+
+</main>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

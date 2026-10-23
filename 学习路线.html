@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>机器学习学习路线 · 读懂 Attention Is All You Need</title>
+<style>
+  :root{
+    --bg:#fbfaf7;
+    --card:#ffffff;
+    --ink:#1c1917;
+    --ink2:#57534e;
+    --ink3:#8a8378;
+    --line:#e7e3dc;
+    --accent:#4c5fd5;
+    --accent-soft:#eef0fd;
+    --warm:#c2620a;
+    --warm-soft:#fdf3e6;
+    --green:#2f7d5d;
+    --green-soft:#e9f5ef;
+    --shadow:0 1px 2px rgba(28,25,23,.04),0 8px 24px rgba(28,25,23,.05);
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei","PingFang SC",system-ui,sans-serif;
+    line-height:1.65;-webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1000px;margin:0 auto;padding:0 28px 100px}
+
+  /* 顶部进度条 */
+  #topbar{position:sticky;top:0;z-index:50;background:rgba(251,250,247,.88);backdrop-filter:blur(10px);border-bottom:1px solid transparent;transition:border-color .2s}
+  #topbar.scrolled{border-bottom-color:var(--line)}
+  .bar-inner{max-width:1000px;margin:0 auto;padding:12px 28px;display:flex;align-items:center;gap:14px}
+  .bar-label{font-size:12px;color:var(--ink2);letter-spacing:.04em;white-space:nowrap}
+  .bar-track{flex:1;height:4px;background:#eae6df;border-radius:99px;overflow:hidden}
+  .bar-fill{height:100%;width:0;background:linear-gradient(90deg,var(--accent),#7a86ea);border-radius:99px;transition:width .4s cubic-bezier(.3,.8,.3,1)}
+  .bar-pct{font-size:12px;font-variant-numeric:tabular-nums;color:var(--accent);font-weight:600;min-width:38px;text-align:right}
+
+  /* hero */
+  header{padding:72px 0 44px;position:relative}
+  header::before{
+    content:"";position:absolute;top:-120px;right:-160px;width:460px;height:460px;
+    background:radial-gradient(circle,rgba(76,95,213,.10),rgba(76,95,213,0) 68%);
+    pointer-events:none;
+  }
+  .eyebrow{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink3);margin-bottom:18px}
+  h1{font-size:clamp(32px,4.6vw,46px);line-height:1.22;margin:0 0 20px;font-weight:700;letter-spacing:-.02em}
+  h1 em{font-style:normal;color:var(--accent);letter-spacing:-.01em}
+  .lede{font-size:16px;color:var(--ink2);max-width:640px;margin:0}
+  .lede b{color:var(--ink);font-weight:600}
+
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:36px}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 20px;box-shadow:var(--shadow)}
+  .stat .n{font-size:26px;font-weight:700;letter-spacing:-.02em;line-height:1.1}
+  .stat .n span{font-size:13px;font-weight:500;color:var(--ink3);margin-left:2px}
+  .stat .k{font-size:12px;color:var(--ink3);margin-top:6px}
+
+  /* 通用区块 */
+  section{margin-top:64px}
+  h2{font-size:20px;margin:0 0 8px;font-weight:650;letter-spacing:-.01em;display:flex;align-items:center;gap:10px}
+  h2::before{content:"";width:3px;height:18px;background:var(--accent);border-radius:2px}
+  .sub{font-size:14px;color:var(--ink2);margin:0 0 26px;max-width:680px}
+
+  /* 三层次 */
+  .levels{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .lv{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+  .lv.target{border-color:#c9cff5;background:linear-gradient(180deg,#fdfdff,#fff)}
+  .lv.target::after{content:"本路线目标";position:absolute;top:0;right:0;font-size:10px;letter-spacing:.08em;background:var(--accent);color:#fff;padding:4px 10px;border-bottom-left-radius:8px}
+  .lv .tag{font-size:11px;letter-spacing:.1em;color:var(--ink3);font-weight:600}
+  .lv h3{margin:8px 0 10px;font-size:16px}
+  .lv p{margin:0;font-size:13.5px;color:var(--ink2);line-height:1.6}
+
+  /* 总览 */
+  .table-wrap{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:var(--shadow)}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th{text-align:left;padding:12px 16px;background:#f6f4ef;color:var(--ink3);font-weight:600;font-size:11.5px;letter-spacing:.06em;border-bottom:1px solid var(--line)}
+  td{padding:12px 16px;border-bottom:1px solid #f1eee8;color:var(--ink2)}
+  tr:last-child td{border-bottom:none}
+  td:first-child{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+  td.rel{color:var(--ink3);font-size:12.5px}
+  tbody tr:hover{background:#fbfaf7}
+
+  /* 时间轴 */
+  .timeline{position:relative;padding-left:0}
+  .stage{position:relative;display:grid;grid-template-columns:64px 1fr;gap:0;margin-bottom:20px}
+  .stage .rail{position:relative;display:flex;justify-content:center}
+  .stage .rail::before{content:"";position:absolute;top:0;bottom:-20px;width:2px;background:var(--line)}
+  .stage:last-child .rail::before{display:none}
+  .dot{width:44px;height:44px;border-radius:50%;background:var(--card);border:2px solid var(--line);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;color:var(--ink3);position:relative;z-index:2;margin-top:14px;transition:all .25s}
+  .stage.done .dot{background:var(--green);border-color:var(--green);color:#fff}
+  .stage.key .dot{border-color:var(--warm);color:var(--warm);background:var(--warm-soft)}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px 24px;box-shadow:var(--shadow);transition:box-shadow .2s,transform .2s}
+  .card:hover{box-shadow:0 2px 4px rgba(28,25,23,.05),0 14px 32px rgba(28,25,23,.07)}
+  .card-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+  .week{font-size:11.5px;font-weight:600;letter-spacing:.04em;color:var(--accent);background:var(--accent-soft);padding:3px 9px;border-radius:6px;font-variant-numeric:tabular-nums}
+  .stage.key .week{color:var(--warm);background:var(--warm-soft)}
+  .card h3{margin:0;font-size:17px;font-weight:650;letter-spacing:-.01em}
+  .hrs{font-size:12px;color:var(--ink3);margin-left:auto;font-variant-numeric:tabular-nums}
+  .goal{font-size:13.5px;color:var(--ink2);margin:0 0 16px;padding-left:12px;border-left:2px solid #eae6df}
+  .goal b{color:var(--ink);font-weight:600}
+
+  .tasks{list-style:none;padding:0;margin:0 0 16px;display:grid;gap:7px}
+  .tasks li{display:flex;gap:10px;align-items:flex-start;font-size:13.5px;color:var(--ink2);line-height:1.55}
+  .tasks input{
+    appearance:none;-webkit-appearance:none;width:16px;height:16px;border:1.5px solid #cfc9c0;border-radius:4.5px;
+    margin:3px 0 0;flex-shrink:0;cursor:pointer;position:relative;transition:all .15s;background:#fff
+  }
+  .tasks input:hover{border-color:var(--accent)}
+  .tasks input:checked{background:var(--accent);border-color:var(--accent)}
+  .tasks input:checked::after{
+    content:"";position:absolute;left:4.5px;top:1px;width:4px;height:8.5px;
+    border:solid #fff;border-width:0 1.8px 1.8px 0;transform:rotate(43deg)
+  }
+  .tasks input:checked + span{color:#a8a29a;text-decoration:line-through;text-decoration-color:#d6d1c8}
+
+  .out{display:flex;gap:8px;align-items:flex-start;font-size:12.5px;color:var(--green);background:var(--green-soft);padding:9px 12px;border-radius:8px;margin-bottom:12px}
+  .out b{font-weight:600;white-space:nowrap}
+  .out code{font-family:ui-monospace,"SF Mono",Consolas,monospace;font-size:12px;background:rgba(47,125,93,.09);padding:1px 5px;border-radius:4px;color:#22664b}
+
+  details{border-top:1px dashed #eae6df;padding-top:12px}
+  summary{font-size:12.5px;color:var(--ink3);cursor:pointer;user-select:none;font-weight:500;list-style:none;display:flex;align-items:center;gap:6px}
+  summary::-webkit-details-marker{display:none}
+  summary::before{content:"▸";font-size:10px;transition:transform .2s;display:inline-block}
+  details[open] summary::before{transform:rotate(90deg)}
+  details ol{margin:10px 0 0;padding-left:20px;font-size:13px;color:var(--ink2);line-height:1.7}
+  details ol li{margin-bottom:3px}
+
+  .note{margin-top:14px;font-size:12.5px;color:var(--warm);background:var(--warm-soft);padding:10px 12px;border-radius:8px;border-left:2px solid var(--warm)}
+
+  /* 资源 */
+  .res{display:grid;gap:10px}
+  .res-item{display:grid;grid-template-columns:52px 1fr auto;gap:16px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 18px;box-shadow:var(--shadow)}
+  .stars{font-size:11px;color:var(--warm);letter-spacing:-1px}
+  .res-item h4{margin:0 0 2px;font-size:14px;font-weight:600}
+  .res-item p{margin:0;font-size:12.5px;color:var(--ink3)}
+  .res-item .where{font-size:11.5px;color:var(--accent);background:var(--accent-soft);padding:3px 9px;border-radius:6px;white-space:nowrap}
+  a{color:var(--accent);text-decoration:none;border-bottom:1px solid rgba(76,95,213,.25)}
+  a:hover{border-bottom-color:var(--accent)}
+
+  /* 误区 */
+  .pit{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .pit div{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;font-size:13px;color:var(--ink2);box-shadow:var(--shadow)}
+  .pit div b{display:block;color:var(--ink);font-size:13.5px;margin-bottom:5px;font-weight:600}
+  .pit div b i{font-style:normal;color:#b91c1c;margin-right:6px}
+
+  /* 检查点 */
+  .checks{display:grid;gap:8px}
+  .check{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 16px;font-size:13.5px;color:var(--ink2)}
+  .check .w{font-size:11.5px;font-weight:600;color:var(--ink3);background:#f6f4ef;padding:2px 8px;border-radius:5px;font-variant-numeric:tabular-nums;flex-shrink:0}
+
+  footer{margin-top:72px;padding-top:24px;border-top:1px solid var(--line);font-size:12px;color:var(--ink3);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
+  .reset{background:none;border:none;color:var(--ink3);font-size:12px;cursor:pointer;text-decoration:underline;padding:0;font-family:inherit}
+  .reset:hover{color:#b91c1c}
+
+  @media(max-width:820px){
+    .stats,.levels,.pit{grid-template-columns:1fr}
+    .stats{grid-template-columns:1fr 1fr}
+    h1{font-size:30px}
+    .stage{grid-template-columns:40px 1fr}
+    .dot{width:34px;height:34px;font-size:13px}
+    .card{padding:18px}
+    .hrs{margin-left:0}
+    .res-item{grid-template-columns:1fr;gap:8px}
+    .res-item .where{justify-self:start}
+  }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <div class="bar-inner">
+    <span class="bar-label">总进度</span>
+    <div class="bar-track"><div class="bar-fill" id="barFill"></div></div>
+    <span class="bar-pct" id="barPct">0%</span>
+  </div>
+</div>
+
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">学习路线 · 16 周 · 2026</div>
+  <h1>从零到读懂<br><em>Attention Is All You Need</em></h1>
+  <p class="lede">
+    为你定制的路线：数学底子够硬（线代 91、高数 90+），Python 语法没问题，
+    缺的是 <b>第三方库</b> 和 <b>把数学翻译成机器学习</b> 的那层映射。
+    所以不从重学数学开始，全部 112 小时花在概念和代码上。
+  </p>
+  <div class="stats">
+    <div class="stat"><div class="n">16<span>周</span></div><div class="k">每天 1 小时</div></div>
+    <div class="stat"><div class="n">112<span>小时</span></div><div class="k">每周 7 小时</div></div>
+    <div class="stat"><div class="n">9<span>个阶段</span></div><div class="k">从跑通到复现</div></div>
+    <div class="stat"><div class="n">1<span>篇论文</span></div><div class="k">唯一终点</div></div>
+  </div>
+</header>
+
+<section>
+  <h2>「读懂」的三个层次</h2>
+  <p class="sub">这三个层次差别巨大。很多人卡在第一层就以为读懂了——L1 靠看博客两天就能到，但那种「懂」一戳就破。</p>
+  <div class="levels">
+    <div class="lv">
+      <div class="tag">L1</div>
+      <h3>能复述</h3>
+      <p>说出每个组件在干什么，画得出架构图，讲得清 Q/K/V 是什么。</p>
+    </div>
+    <div class="lv target">
+      <div class="tag">L2</div>
+      <h3>能推导</h3>
+      <p>白纸上推出式(1)(2)(3)，标出每个张量的形状，包括维度变化。</p>
+    </div>
+    <div class="lv">
+      <div class="tag">L3</div>
+      <h3>能评判</h3>
+      <p>知道为什么这样设计、代价是什么、哪里可以改。回答「为什么是 √d_k」。</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>路线总览</h2>
+  <p class="sub">从论文倒推：先列出读懂论文必须会的 12 件事，再排依赖顺序。每一周都能回答「这跟 Transformer 有什么关系」。</p>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>阶段</th><th>周次</th><th>主题</th><th>小时</th><th>与论文的关系</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>0</td><td>第 0 周</td><td>跑通项目 + 定位</td><td>2</td><td class="rel">看到终点长什么样</td></tr>
+        <tr><td>1</td><td>W1–W2</td><td>数学 → 代码的翻译</td><td>14</td><td class="rel">式(1) 的矩阵乘法、softmax</td></tr>
+        <tr><td>2</td><td>W3–W4</td><td>机器学习最小闭环</td><td>14</td><td class="rel">交叉熵、梯度下降、过拟合</td></tr>
+        <tr><td>3</td><td>W5–W6</td><td>神经网络与反向传播</td><td>14</td><td class="rel">§3.3 FFN、§3.1 残差</td></tr>
+        <tr><td>4</td><td>W7–W8</td><td>语言模型入门</td><td>14</td><td class="rel">§1 的动机、§3.4 权重共享</td></tr>
+        <tr><td>5</td><td>W9–W10</td><td>注意力的由来</td><td>14</td><td class="rel">§3.2 式(1)(2)、√d_k</td></tr>
+        <tr><td>6</td><td>W11–W13</td><td>拆解 Transformer</td><td>21</td><td class="rel">§3 全章</td></tr>
+        <tr><td>7</td><td>W14–W15</td><td>精读论文 + 消融</td><td>14</td><td class="rel">§4–§6 与表 1/2/3</td></tr>
+        <tr><td>8</td><td>W16</td><td>输出复现报告</td><td>7</td><td class="rel">全部</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <h2>逐阶段执行</h2>
+  <p class="sub">勾选会在本机保存进度。每完成一个阶段，先答对自测题再往下走。</p>
+
+  <div class="timeline" id="timeline"></div>
+</section>
+
+<section>
+  <h2>资源清单</h2>
+  <p class="sub">按优先级排列。★ 越多越该先看——带 ☆ 的现在别碰。</p>
+  <div class="res">
+    <div class="res-item">
+      <div class="stars">★★★</div>
+      <div>
+        <h4>《动手学深度学习》中文版</h4>
+        <p>主线教材，有可运行代码，第 3 章起全程使用</p>
+      </div>
+      <div class="where"><a href="https://zh.d2l.ai/" target="_blank" rel="noopener">zh.d2l.ai</a></div>
+    </div>
+    <div class="res-item">
+      <div class="stars">★★★</div>
+      <div>
+        <h4>Karpathy《Neural Networks: Zero to Hero》</h4>
+        <p>反向传播、语言模型、从零写 GPT。W5–W8 的核心</p>
+      </div>
+      <div class="where"><a href="https://karpathy.ai/zero-to-hero.html" target="_blank" rel="noopener">karpathy.ai</a></div>
+    </div>
+    <div class="res-item">
+      <div class="stars">★★★</div>
+      <div>
+        <h4>论文中英对照</h4>
+        <p>本地 <code>papers/</code> 目录，W14–W15 精读主材料</p>
+      </div>
+      <div class="where">本地文件</div>
+    </div>
+    <div class="res-item">
+      <div class="stars">★★☆</div>
+      <div>
+        <h4>The Illustrated Transformer</h4>
+        <p>Jay Alammar。读前 60% 到 Multi-Head 为止，建立直观</p>
+      </div>
+      <div class="where"><a href="https://jalammar.github.io/illustrated-transformer/" target="_blank" rel="noopener">jalammar.github.io</a></div>
+    </div>
+    <div class="res-item">
+      <div class="stars">★★☆</div>
+      <div>
+        <h4>The Annotated Transformer</h4>
+        <p>哈佛 NLP 组逐行注释实现，W12–W13 对照用</p>
+      </div>
+      <div class="where">搜索标题</div>
+    </div>
+    <div class="res-item">
+      <div class="stars">★★☆</div>
+      <div>
+        <h4>3Blue1Brown《线性代数的本质》</h4>
+        <p>只看 4 集：向量、线性变换、矩阵乘法、点积</p>
+      </div>
+      <div class="where"><a href="https://www.3blue1brown.com/topics/linear-algebra" target="_blank" rel="noopener">3b1b</a></div>
+    </div>
+    <div class="res-item">
+      <div class="stars">★☆☆</div>
+      <div>
+        <h4>西瓜书 / 花书 / CS229 全套</h4>
+        <p>暂时别看。花书是参考手册不是入门书，现在打开只会浪费两周</p>
+      </div>
+      <div class="where">W16 之后再查</div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>五个常见误区</h2>
+  <div class="pit">
+    <div><b><i>✕</i>先系统学完机器学习再碰深度学习</b>会把 112 小时里的 60 小时花在永远用不上的 SVM 和集成学习上。</div>
+    <div><b><i>✕</i>囤课</b>收藏 200 小时课程的安全感，和真正会写代码是两件事。一门 d2l + 一个 Karpathy 就够。</div>
+    <div><b><i>✕</i>在 RNN/LSTM 上花超过一周</b>你需要知道它「为什么不行」，不需要会实现它。论文已经把它取代了。</div>
+    <div><b><i>✕</i>跳过手写反向传播直接学 PyTorch</b>会让你后面所有「为什么 loss 不降」的调试都变成玄学。</div>
+    <div><b><i>✕</i>读代码代替写代码</b><code>src/</code> 里是答案。先自己写、写完对照，而不是反过来。</div>
+    <div><b><i>✓</i>唯一正确的做法</b>每天 15 分钟看材料、35 分钟写代码、10 分钟记笔记。手放在键盘上，看不等于会。</div>
+  </div>
+</section>
+
+<section>
+  <h2>进度检查点</h2>
+  <p class="sub">每两周核对一次，全绿才往下走。答不出自测题说明这一阶段没真正过。</p>
+  <div class="checks">
+    <div class="check"><span class="w">W2</span>能用 numpy 手写 softmax 和矩阵乘；能解释 q·k 为什么是相似度</div>
+    <div class="check"><span class="w">W4</span>能推出交叉熵对 logits 的梯度是 softmax(z) − y</div>
+    <div class="check"><span class="w">W6</span>能手写两层 MLP 的反向传播，和 PyTorch 结果对得上</div>
+    <div class="check"><span class="w">W8</span>能解释 perplexity，且你的 MLP-LM 打败了 bigram</div>
+    <div class="check"><span class="w">W10</span>能解释为什么除以 √d_k，并复现「d_k 大时 softmax 饱和」</div>
+    <div class="check"><span class="w">W13</span>不看 src/model.py 能写出 Multi-Head Attention</div>
+    <div class="check"><span class="w">W15</span>能逐节讲完论文，能指出至少 2 个论文没讲清楚的地方</div>
+    <div class="check"><span class="w">W16</span>能不看稿讲 20 分钟</div>
+  </div>
+</section>
+
+<footer>
+  <span>路线生成于 2026-10-21 · 顺序不要改，周次可按实际进度伸缩</span>
+  <button class="reset" id="reset">清空进度</button>
+</footer>
+
+</div>
+
+<script>
+const STAGES = [
+  {
+    n: 0, week: "第 0 周", hrs: "2 小时", title: "起步：跑通项目",
+    goal: "亲手跑出终点，知道这 16 周在往哪走。",
+    tasks: [
+      "激活 .venv，确认 torch 2.11.0+cu128 且 CUDA 可用",
+      "依次跑 train.py / generate.py / visualize_attention.py，看完输出",
+      "打开注意力热图，问自己：右上角为什么是黑的？"
+    ],
+    out: "notes/疑问清单.md",
+    outDesc: "把所有「这是啥」记下来，20 条不嫌多",
+    quiz: []
+  },
+  {
+    n: 1, week: "W1–W2", hrs: "14 小时", title: "数学 → 代码的翻译",
+    goal: "把矩阵乘法从考试题变成一行 numpy，建立「内积 = 相似度」这层直觉。",
+    tasks: [
+      "3B1B 线代本质只看 4 集：向量 / 线性变换 / 矩阵乘 / 点积",
+      "numpy 只学 8 个：array shape reshape transpose matmul sum(axis) mean broadcasting",
+      "w1_numpy.py：显式循环矩阵乘 + softmax(减 max) + 余弦相似度矩阵",
+      "w2_linear_regression.py：正规方程 vs 梯度下降，两条 loss 曲线画一张图"
+    ],
+    out: "exercises/w1_numpy.py · w2_linear_regression.py",
+    outDesc: "亲手看到「梯度下降真的能收敛到解析解」",
+    quiz: [
+      "q·k 为什么能表示相似度？从投影的角度解释。",
+      "softmax 分子分母同除 e^max 是恒等变形，为什么代码里必须做？",
+      "形状 (32,64,64) 的张量，要得到 (32,4,64,16)，view + transpose 怎么写？"
+    ]
+  },
+  {
+    n: 2, week: "W3–W4", hrs: "14 小时", title: "机器学习最小闭环",
+    goal: "搞懂「模型 = 假设空间 + 损失函数 + 优化算法」，亲手跑通一次完整训练。",
+    tasks: [
+      "线性回归 → MSE → 为什么平方而不是绝对值",
+      "逻辑回归 → sigmoid → 交叉熵 → 为什么分类不用 MSE",
+      "梯度下降 → 学习率 → 批量 / 随机 / 小批量",
+      "过拟合 → train/val/test 划分 → 正则化 → 早停",
+      "w3_logreg.py：numpy 手写逻辑回归，在 breast_cancer 上和 sklearn 对比"
+    ],
+    out: "exercises/w3_logreg.py",
+    outDesc: "准确率应该接近 sklearn；差太多说明梯度推错了",
+    quiz: [
+      "交叉熵对 logits 的梯度是什么？为什么这么简洁？",
+      "训练 loss 一直降、验证 loss 先降后升，说明什么？给出三种应对方案。",
+      "为什么需要验证集？直接用测试集调参有什么问题？"
+    ]
+  },
+  {
+    n: 3, week: "W5–W6", hrs: "14 小时", title: "神经网络与反向传播", key: true,
+    goal: "全路线最关键的一关：能手推一层 MLP 的梯度，从此矩阵求导不再神秘。",
+    tasks: [
+      "Karpathy 第 1 集 micrograd（2.5h，分 3 次看，边看边敲）",
+      "w5_micrograd.py：自己写 Value 类 + backward()，和 torch.autograd 逐个对比",
+      "w6_mlp_numpy.py：numpy 手写两层 MLP + 反向传播，load_digits 上 > 90%",
+      "w6_mlp_torch.py：PyTorch 实现同一网络，两条 loss 曲线应几乎重合"
+    ],
+    out: "exercises/w5_micrograd.py · w6_mlp_*.py",
+    outDesc: "做完这一步，你就理解了 PyTorch 的核心是什么",
+    quiz: [
+      "白纸写出两层 MLP 中 W1 的梯度表达式，标出每个矩阵的维度。",
+      "为什么需要非线性激活？把 ReLU 去掉，网络会退化成什么？",
+      "反向传播比数值微分快在哪里？为什么它本质只是链式法则换了计算顺序？"
+    ],
+    note: "最容易放弃的地方。如果 14 小时不够，允许延长到 3 周。但不要跳过手写反向传播——跳过它，你会永远停在 L1。"
+  },
+  {
+    n: 4, week: "W7–W8", hrs: "14 小时", title: "语言模型入门",
+    goal: "搞懂「用模型预测下一个字符」的完整流程，理解 perplexity。",
+    tasks: [
+      "概念：token / 词表 / embedding / next-token prediction / perplexity = e^loss",
+      "读 src/prepare_data.py，理解语料怎么变成 corpus.txt + vocab.json",
+      "w7_bigram.py：字符级 bigram（纯计数），算 perplexity 并采样生成",
+      "w8_mlp_lm.py：用 W6 的 MLP 做字符级 LM，加 embedding，打败 bigram"
+    ],
+    out: "exercises/w7_bigram.py · w8_mlp_lm.py",
+    outDesc: "这就是 Bengio 2003 的神经语言模型，论文 §1 讲的就是这条演进线",
+    quiz: [
+      "困惑度 7.67 意味着什么？用大白话解释。",
+      "字符级和词级模型，词表大小差多少？如何影响嵌入层参数量？",
+      "为什么输出层和嵌入层可以共享权重（§3.4）？共享后省了多少参数？"
+    ]
+  },
+  {
+    n: 5, week: "W9–W10", hrs: "14 小时", title: "注意力的由来",
+    goal: "彻底搞懂式(1)，包括那个 √d_k——这是整篇论文唯一的核心公式。",
+    tasks: [
+      "RNN/LSTM 只理解问题（串行、长依赖衰减、信息瓶颈），最多花 2 小时",
+      "The Illustrated Transformer 读到 Multi-Head 为止",
+      "理解 Bahdanau 加性注意力解决了什么，点积注意力为什么更省",
+      "w9_attention.py：numpy 实现 attention，验证行和为 1、掩码后上三角为 0",
+      "关键实验：d_k = 4/16/64/256/512，统计 q·k 标准差，观察 softmax 饱和"
+    ],
+    out: "exercises/w9_attention.py",
+    outDesc: "亲手算出标准差是 √d_k，这个实验做完式(1) 一辈子不会忘",
+    quiz: [
+      "写出式(1)，说明 Q/K/V 各自的语义角色。",
+      "随机初始化下 q·k 的标准差是多少？为什么除以 √d_k 刚好归一化？",
+      "加性注意力和点积注意力各有什么优劣？论文为什么选后者？"
+    ],
+    note: "d_k 越大 softmax 越尖、接近 one-hot，此时梯度几乎为 0。这就是论文除以 √d_k 的全部原因，而论文只写了半句话。"
+  },
+  {
+    n: 6, week: "W11–W13", hrs: "21 小时", title: "拆解 Transformer",
+    goal: "不看 src/model.py 也能自己写出来。先自己写，写完再对照——直接读会产生「我懂了」的错觉。",
+    tasks: [
+      "W11 多头注意力：四个 Linear + 拆头 + 缩放点积 + 拼回；踩一次 .contiguous() 的坑",
+      "W11 回答：多头和单头 d_model 维计算量一样吗？收益来自哪里？",
+      "W12 位置编码 + FFN：对数域算 exp，避免溢出",
+      "W12 三个为什么：为什么需要位置编码 / 为什么 sin-cos / Post-LN 与 warmup 的关系",
+      "W13 拼装 + 因果掩码 + generate，训练 500 步确认 loss < 3",
+      "每写完一块，对照 src/model.py 对应行数核对"
+    ],
+    out: "exercises/w11_attention_torch.py · w13_tiny_gpt.py",
+    outDesc: "写完再对照，而不是对照着抄",
+    quiz: [
+      "多头注意力的参数量和「单头 d_model 维」差多少？多头的收益来自哪里？",
+      "因果掩码在哪一步生效？为什么必须在 softmax 之前？",
+      "残差连接解决什么问题？没有它，2 层以上还能训练吗？",
+      "LayerNorm 和 BatchNorm 在变长序列上有什么本质差别？",
+      "输出层 nn.Linear(d_model, vocab, bias=False) 为什么没有 bias？"
+    ]
+  },
+  {
+    n: 7, week: "W14–W15", hrs: "14 小时", title: "精读论文 + 消融实验",
+    goal: "从 L2 到 L3：不只读懂，还要能验证、能质疑。",
+    tasks: [
+      "第 1 遍：Abstract + §1 + §2，只读不推公式，抓动机（RNN 串行、CNN 路径长度）",
+      "第 2 遍：§3.1–§3.3，每个张量标形状，白纸推式(1)(2)",
+      "第 3 遍：§3.4–§3.5，权重共享、位置编码、√d_model 缩放",
+      "第 4 遍：§4–§6 + 表 1/2/3，重点看表 3 消融",
+      "每节读完再回原文对应段落——译文是拐杖，不能一直拄",
+      "消融实验：n_heads=1 / n_heads=16 / 去掉位置编码，各跑 25 秒，对照论文表 3"
+    ],
+    out: "notes/论文精读.md",
+    outDesc: "逐节笔记 + 公式推导 + 一页「论文没写清楚的地方」",
+    quiz: [
+      "表 3 的 (A) 行说明了什么？你能在小模型上复现吗？",
+      "式(3) 在 4000 步时学习率是多少？和你的训练日志对得上吗？",
+      "论文为什么说 self-attention 路径长度 O(1)、RNN 是 O(n)？带来什么好处？",
+      "本项目没有交叉注意力层，为什么可以没有？"
+    ],
+    note: "src/train.py 第 118 行用 \"w\" 模式写日志，重跑会覆盖 train_log.csv。做消融前先备份，或把 cfg.log_file 改成带后缀的名字——顺手把这个小缺陷修掉。"
+  },
+  {
+    n: 8, week: "W16", hrs: "7 小时", title: "输出复现报告",
+    goal: "把「我懂了」变成「我能讲清楚」。输出是唯一能检验是否真懂的方式。",
+    tasks: [
+      "自己画架构图（不要截图论文的）",
+      "参数量推导表：能自己算出 100,048",
+      "训练曲线 + 生成样例 + 你的评价：像不像 Python？错在哪？",
+      "三个消融实验的结果表",
+      "与论文的差异清单，以及这些差异是否影响结论",
+      "写出你认为「论文没讲清楚」的 3 个点"
+    ],
+    out: "notes/复现报告.md",
+    outDesc: "验收标准：拿这份报告给同学讲 20 分钟，不看稿",
+    quiz: [
+      "讲卡壳的地方就是你没懂的地方——回去补。"
+    ]
+  }
+];
+
+const KEY = "ml-roadmap-progress-v1";
+let state = {};
+try { state = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch(e) { state = {}; }
+
+const tl = document.getElementById("timeline");
+let totalTasks = 0;
+
+STAGES.forEach(s => {
+  const el = document.createElement("div");
+  el.className = "stage" + (s.key ? " key" : "");
+  el.dataset.stage = s.n;
+
+  const quizHTML = s.quiz.length ? `
+    <details>
+      <summary>自测题（${s.quiz.length} 题，答不出就回头补）</summary>
+      <ol>${s.quiz.map(q => `<li>${q}</li>`).join("")}</ol>
+    </details>` : "";
+
+  const tasksHTML = s.tasks.map((t, i) => {
+    const id = `s${s.n}t${i}`;
+    totalTasks++;
+    return `<li><input type="checkbox" id="${id}" data-id="${id}"><span>${t}</span></li>`;
+  }).join("");
+
+  const noteHTML = s.note ? `<div class="note">${s.note}</div>` : "";
+
+  el.innerHTML = `
+    <div class="rail"><div class="dot">${s.n}</div></div>
+    <div class="card">
+      <div class="card-head">
+        <span class="week">${s.week}</span>
+        <h3>${s.title}</h3>
+        <span class="hrs">${s.hrs}</span>
+      </div>
+      <p class="goal">${s.goal}</p>
+      <ul class="tasks">${tasksHTML}</ul>
+      <div class="out"><b>产出</b><div><code>${s.out}</code> — ${s.outDesc}</div></div>
+      ${noteHTML}
+      ${quizHTML}
+    </div>`;
+  tl.appendChild(el);
+});
+
+// 进度计算
+const boxes = Array.from(document.querySelectorAll('.tasks input'));
+function refresh(){
+  let done = 0;
+  boxes.forEach(b => { if (b.checked) done++; });
+  const pct = totalTasks ? Math.round(done / totalTasks * 100) : 0;
+  document.getElementById("barFill").style.width = pct + "%";
+  document.getElementById("barPct").textContent = pct + "%";
+
+  // 阶段完成标记：该阶段所有任务都勾选
+  document.querySelectorAll(".stage").forEach(st => {
+    const bs = st.querySelectorAll("input");
+    const all = bs.length && Array.from(bs).every(b => b.checked);
+    st.classList.toggle("done", !!all);
+  });
+}
+
+// 恢复状态
+boxes.forEach(b => {
+  if (state[b.dataset.id]) b.checked = true;
+  b.addEventListener("change", () => {
+    if (b.checked) state[b.dataset.id] = 1; else delete state[b.dataset.id];
+    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e) {}
+    refresh();
+  });
+});
+refresh();
+
+document.getElementById("reset").addEventListener("click", () => {
+  if (!confirm("清空本机记录的所有进度？")) return;
+  state = {};
+  try { localStorage.removeItem(KEY); } catch(e) {}
+  boxes.forEach(b => b.checked = false);
+  refresh();
+});
+
+// 顶部边框
+window.addEventListener("scroll", () => {
+  document.getElementById("topbar").classList.toggle("scrolled", window.scrollY > 10);
+}, { passive: true });
+</script>
+</body>
+</html>

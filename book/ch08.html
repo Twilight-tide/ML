@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第 8 章 · 位置、残差与前馈 | 读懂 Transformer</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="readbar"></div>
+
+<div class="layout">
+<nav class="toc" id="toc">
+  <div class="toc-brand"><a href="index.html">读懂 Transformer</a></div>
+  <div class="toc-sub">2026 · 第一版</div>
+</nav>
+<main>
+
+<header class="chap-head">
+  <div class="chap-no">Chapter 8</div>
+  <h1>位置、残差与前馈</h1>
+  <p class="chap-sub">没有位置编码，模型分不清「狗咬人」和「人咬狗」</p>
+  <div class="chap-meta">
+    <span>约 1 周</span>
+    <span>需写代码</span>
+    <span>对应 W12</span>
+  </div>
+</header>
+
+<p class="lead">
+上一章结束时，你有了一个能算注意力的模块。但它有一个致命缺陷：<b>它不知道谁在前谁在后。</b>
+把输入的顺序打乱，输出只是跟着打乱，内容一模一样。这一章要补上三个「看起来是细节、实际上是支柱」的东西：
+位置编码、残差连接、层归一化。再加上前馈网络，一个解码器层就齐了。
+</p>
+
+<h2>8.1 注意力是置换等变的</h2>
+
+<p>先证明这件事，因为它解释了为什么必须有位置编码。</p>
+
+<p>设 <i class="v">P</i> 是一个置换矩阵（左乘它相当于把行重新排列）。那么：</p>
+
+<div class="eq">
+Attention(<i class="v">PX</i>) = softmax(<i class="v">PXW</i>(<i class="v">PXW</i>)<sup>T</sup>) <i class="v">PXV</i>
+= softmax(<i class="v">PXWW</i><sup>T</sup><i class="v">X</i><sup>T</sup><i class="v">P</i><sup>T</sup>) <i class="v">PXV</i>
+</div>
+
+<p>
+因为 <i class="v">P</i><sup>T</sup><i class="v">P</i> = <i class="v">I</i>，中间的 <i class="v">P</i><sup>T</sup><i class="v">P</i> 抵消了。
+而 softmax 是逐行操作的，置换行只是置换输出行。最终：
+</p>
+
+<div class="eq">
+Attention(<i class="v">PX</i>) = <i class="v">P</i> · Attention(<i class="v">X</i>)
+</div>
+
+<p>
+也就是说：<b>把输入打乱，输出也只是跟着打乱，每个位置上的值完全不变。</b>
+</p>
+
+<div class="callout key">
+  <span class="label">要点</span>
+  <p>「狗咬人」和「人咬狗」的 token 集合完全相同，只是顺序不同。
+  纯注意力对这两句话的输出是一样的（只是排列不同）——它根本无法区分。
+  <b>位置信息不是可选的补充，是语言模型的前提。</b></p>
+</div>
+
+<h2>8.2 正弦位置编码</h2>
+
+<p>论文 §3.5 的做法是给每个位置算一个 d_model 维的向量，直接加到嵌入上：</p>
+
+<div class="eq">
+PE(pos, 2i) = sin( pos / 10000<sup>2i/d<sub>model</sub></sup> )<br>
+PE(pos, 2i+1) = cos( pos / 10000<sup>2i/d<sub>model</sub></sup> )
+<span class="where">pos 是位置，i 是维度索引</span>
+</div>
+
+<p>
+偶数维用 sin，奇数维用 cos，每一对 (2i, 2i+1) 共享同一个频率。
+频率从 i=0 时的 1（波长 2π）一直降到 i=d/2 时的 1/10000（波长 20000π）。
+<b>高维变化极慢，低维变化极快</b>，形成一组「不同刻度的尺子」。
+</p>
+
+<div class="diagram">
+  <div class="box">维度 0,1<br><span style="font-size:11px">波长 2π</span></div>
+  <div class="box">维度 2,3<br><span style="font-size:11px">波长 2π·100<sup>0.03</sup></span></div>
+  <div class="box">…</div>
+  <div class="box">维度 62,63<br><span style="font-size:11px">波长 20000π</span></div>
+</div>
+
+<h3>为什么这个设计好</h3>
+
+<p>关键性质是：<b>任意固定位移 k 的位置编码，都可以由位移 0 的位置编码通过一个线性变换得到。</b></p>
+
+<p>看一对 (2i, 2i+1)，记 ω = 1/10000<sup>2i/d</sup>，那么：</p>
+
+<div class="eq">
+[ sin((pos+k)ω) ]   [ cos(kω)   sin(kω) ] [ sin(pos·ω) ]<br>
+[ cos((pos+k)ω) ] = [ −sin(kω)  cos(kω) ] [ cos(pos·ω) ]
+</div>
+
+<p>
+右边那个 2×2 矩阵<b>只和 k 有关，和 pos 无关</b>。这正是三角函数的和角公式。
+</p>
+
+<p>
+含义是：模型如果学会了「往前看 3 个位置」这个操作，那么它在位置 10 和位置 500 用的是<b>同一个线性变换</b>。
+<b>相对位置的信息被编码成了一个与绝对位置无关的旋转。</b>
+</p>
+
+<div class="callout key">
+  <span class="label">要点</span>
+  <p>论文选正弦编码的两个理由：</p>
+  <ol style="margin:.4em 0 0">
+    <li><b>相对位置可表达。</b>PE(pos+k) 是 PE(pos) 的线性函数，模型容易学会「看相对距离」。</li>
+    <li><b>可以外推到训练时没见过的长度。</b>即使训练只用 64 长度，推理时算到 200 也能算出合法的编码。</li>
+  </ol>
+</div>
+
+<h3>但这两条都值得怀疑</h3>
+
+<p>
+第一个理由成立，但它不是唯一的实现方式。第二个理由在实践中<strong>很少真的奏效</strong>——
+模型在训练长度之外的表现通常会显著下降，不管用不用正弦编码。
+</p>
+
+<p>
+后来的工作（包括 GPT 系列）大多改用<b>可学习的位置嵌入</b>：就是一个 (max_len, d_model) 的矩阵，当作参数训练。
+它在训练范围内往往略好，代价是完全无法外推。
+</p>
+
+<div class="callout warn">
+  <span class="label">陷阱</span>
+  <p>不要因为论文写了「可以外推」就以为它能外推。
+  这个说法在 2017 年是一种<b>设计期望</b>，不是实验结论。论文自己也没有做长度外推的实验。
+  读论文时要注意区分「作者声称」和「作者证明」。</p>
+</div>
+
+<h2>8.3 残差连接</h2>
+
+<p>第 4 章说过，梯度是连乘的，深了就会消失。残差是最简单的解法：</p>
+
+<div class="eq">
+<i class="v">y</i> = <i class="v">x</i> + <i class="v">f</i>(<i class="v">x</i>)
+<span class="where">f 是子层（注意力或 FFN）</span>
+</div>
+
+<p>求导：</p>
+
+<div class="eq">
+∂<i class="v">y</i>/∂<i class="v">x</i> = <i class="v">I</i> + ∂<i class="v">f</i>/∂<i class="v">x</i>
+</div>
+
+<p>
+那个 <i class="v">I</i> 就是「高速公路」。即使 ∂f/∂x 小到 0，梯度也能原样传回去。
+<b>50 层连乘 0.1 会消失，但连乘 (1 + 0.1) 会爆炸——所以还需要 LayerNorm 来压住它。</b>
+</p>
+
+<p>
+残差还有一个解释：它让每一层只需要学「增量」，而不是「完整的表示」。
+如果某一层没什么可学的，它可以把 f(x) 输出成 0，这一层就退化成恒等映射，不影响整体。
+<b>这让「加深」变成了一件安全的事。</b>
+</p>
+
+<div class="callout warn">
+  <span class="label">陷阱</span>
+  <p>残差要求 <i class="v">x</i> 和 <i class="v">f</i>(<i class="v">x</i>) 形状相同。
+  所以 d_model 在所有子层里必须保持一致，注意力输出和 FFN 输出都必须投影回 d_model。
+  这也是为什么 W<sup>O</sup> 和 W₂ 存在——它们不只是「混合信息」，还负责<b>把维度对齐</b>。</p>
+</div>
+
+<h2>8.4 LayerNorm 与 BatchNorm 的分水岭</h2>
+
+<p>两者的公式长得几乎一样，区别只在「沿哪个方向算均值和方差」：</p>
+
+<div class="eq">
+LayerNorm(<i class="v">x</i>) = <i class="v">γ</i> ⊙ (<i class="v">x</i> − μ) / √(σ² + ε) + <i class="v">β</i>
+</div>
+
+<table>
+<caption>表 8-1　LN 与 BN 的差别</caption>
+<thead><tr><th></th><th>BatchNorm</th><th>LayerNorm</th></tr></thead>
+<tbody>
+<tr><td>统计维度</td><td>跨 batch（同一个特征，不同样本）</td><td><b>跨特征（同一个样本，所有维度）</b></td></tr>
+<tr><td>依赖 batch size</td><td>是，batch 小就不稳</td><td>否，单样本也能算</td></tr>
+<tr><td>变长序列</td><td>padding 会污染统计量</td><td>天然适应</td></tr>
+<tr><td>训练/推理行为</td><td>不同（要用滑动平均）</td><td>相同</td></tr>
+<tr><td>用在哪</td><td>CNN（图像）</td><td><b>Transformer（序列）</b></td></tr>
+</tbody>
+</table>
+
+<p>为什么 NLP 必须用 LN？三个理由，从弱到强：</p>
+
+<ol>
+<li>序列长度不一，padding 会让 BN 的统计量失真。</li>
+<li>batch size 常常很小（受显存限制），BN 的均值方差估计噪声太大。</li>
+<li><b>最根本的</b>：BN 的统计量依赖「同一 batch 里的其他样本」，这让训练和推理的行为不一致，
+       而且在自回归生成时（一次只有一个样本）根本无法计算。</li>
+</ol>
+
+<div class="callout key">
+  <span class="label">要点</span>
+  <p>LN 是<b>对每个 token 独立</b>做的：把这个 token 的 64 维向量拉出来，算均值方差，归一化。
+  它不关心 batch 里还有什么，也不关心序列有多长。<b>这种「与上下文无关」的性质，正是自回归生成需要的。</b></p>
+</div>
+
+<h2>8.5 Post-LN 还是 Pre-LN</h2>
+
+<p>残差和 LN 谁先谁后，有两种排法：</p>
+
+<div class="eq">
+Post-LN：<i class="v">x</i> ← LN(<i class="v">x</i> + Sublayer(<i class="v">x</i>))<br>
+Pre-LN：　<i class="v">x</i> ← <i class="v">x</i> + Sublayer(LN(<i class="v">x</i>))
+</div>
+
+<p>
+<b>论文用的是 Post-LN</b>（§3.1：<i>the output of each sub-layer is LayerNorm(x + Sublayer(x))</i>）。
+这也是 <code>src/model.py</code> 里的写法。
+</p>
+
+<p>两者的差别不大，但后果不小：</p>
+
+<table>
+<thead><tr><th></th><th>Post-LN（论文）</th><th>Pre-LN（GPT-2 之后）</th></tr></thead>
+<tbody>
+<tr><td>梯度</td><td>要穿过 LN 才能回到残差，衰减快</td><td>残差是纯恒等路径，梯度直达</td></tr>
+<tr><td>训练稳定性</td><td><b>差</b>，必须配 warmup</td><td>好，warmup 可以省</td></tr>
+<tr><td>最终性能</td><td>略好（调好的话）</td><td>略差一点</td></tr>
+<tr><td>用在哪</td><td>原始 Transformer、BERT</td><td>GPT-2/3、LLaMA</td></tr>
+</tbody>
+</table>
+
+<p>
+这就解释了论文 §5.3 那个奇怪的学习率曲线：<b>为什么要先 warmup 再衰减？</b>
+因为 Post-LN 在训练初期极不稳定，直接用大学习率会炸。先用小学习率「热身」，等参数进入稳定区域再放大。
+</p>
+
+<div class="callout key">
+  <span class="label">要点</span>
+  <p>warmup 不是「玄学技巧」，它是 <b>Post-LN 架构的补丁</b>。
+  换成 Pre-LN，很多模型就不需要 warmup 了。理解这个因果关系，比记住「要 warmup」有用得多。</p>
+</div>
+
+<h2>8.6 前馈网络：式(2)</h2>
+
+<p>每个解码器层的第二个子层是一个两层 MLP，对每个位置<b>独立</b>作用：</p>
+
+<div class="eq">
+FFN(<i class="v">x</i>) = max(0, <i class="v">xW</i><sub>1</sub> + <i class="v">b</i><sub>1</sub>) <i class="v">W</i><sub>2</sub> + <i class="v">b</i><sub>2</sub>
+<span class="where">式(2)　中间维度 d_ff，通常 = 4 × d_model</span>
+</div>
+
+<p>
+「逐位置」意味着：位置 1 的 FFN 和位置 2 的 FFN 用的是<b>同一组权重</b>，但互不影响。
+它不看上下文——上下文的信息已经在注意力子层里混合过了。
+</p>
+
+<p>用代码说，它等价于两个 1×1 卷积：</p>
+
+<div class="diagram">
+  <div class="box">(B,T,64)</div><span class="arrow">→</span>
+  <div class="box">Linear 64→232</div><span class="arrow">→</span>
+  <div class="box">ReLU</div><span class="arrow">→</span>
+  <div class="box">Linear 232→64</div><span class="arrow">→</span>
+  <div class="box accent">(B,T,64)</div>
+</div>
+
+<p>
+为什么中间要放大 4 倍？这是一个经验值，没有严格理论。直观的解释是：
+<b>注意力负责「在位置之间搬运信息」，FFN 负责「在每个位置上做非线性加工」</b>。
+加工需要更大的工作空间，所以先升维再降维。参数量上，FFN 通常占整个模型的一半以上。
+</p>
+
+<p>
+本项目 <code>d_ff=232</code> 而不是 256，纯粹是为了凑 10 万参数（第 1 章算过）。
+论文的 2048 = 4 × 512，比例是标准的 4 倍。
+</p>
+
+<h2>8.7 完整实现</h2>
+
+<pre><code><span class="k">class</span> <span class="fn">PositionalEncoding</span>(nn.Module):
+    <span class="k">def</span> <span class="fn">__init__</span>(self, d_model, max_len=<span class="n">5000</span>, dropout=<span class="n">0.0</span>):
+        super().__init__()
+        self.dropout = nn.Dropout(dropout)
+
+        pe = torch.zeros(max_len, d_model)
+        pos = torch.arange(<span class="n">0</span>, max_len, dtype=torch.float).unsqueeze(<span class="n">1</span>)
+
+        <span class="c"># 10000^(2i/d) 在对数域算：exp((2i/d) * ln(10000))</span>
+        <span class="c"># 直接算 10000 ** (2i/d) 在 d 大时会溢出</span>
+        div = torch.exp(torch.arange(<span class="n">0</span>, d_model, <span class="n">2</span>).float()
+                        * (-math.log(<span class="n">10000.0</span>) / d_model))
+
+        pe[:, <span class="n">0</span>::<span class="n">2</span>] = torch.sin(pos * div)
+        pe[:, <span class="n">1</span>::<span class="n">2</span>] = torch.cos(pos * div)
+
+        <span class="c"># register_buffer：存进 state_dict 但不参与训练</span>
+        self.register_buffer(<span class="s">"pe"</span>, pe.unsqueeze(<span class="n">0</span>))
+
+    <span class="k">def</span> <span class="fn">forward</span>(self, x):
+        <span class="k">return</span> self.dropout(x + self.pe[:, :x.size(<span class="n">1</span>)])</code></pre>
+
+<p>然后是解码器层，把注意力、FFN、残差、LN 拼起来：</p>
+
+<pre><code><span class="k">class</span> <span class="fn">DecoderLayer</span>(nn.Module):
+    <span class="k">def</span> <span class="fn">__init__</span>(self, d_model, n_heads, d_ff, dropout):
+        super().__init__()
+        self.self_attn = MultiHeadAttention(d_model, n_heads, dropout)
+        self.ffn = PositionwiseFeedForward(d_model, d_ff, dropout)
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
+        self.dropout1 = nn.Dropout(dropout)
+        self.dropout2 = nn.Dropout(dropout)
+
+    <span class="k">def</span> <span class="fn">forward</span>(self, x, mask=<span class="k">None</span>):
+        <span class="c"># 子层 1：掩蔽自注意力（Post-LN）</span>
+        a, attn = self.self_attn(x, mask)
+        x = self.norm1(x + self.dropout1(a))
+
+        <span class="c"># 子层 2：前馈（Post-LN）</span>
+        x = self.norm2(x + self.dropout2(self.ffn(x)))
+        <span class="k">return</span> x, attn</code></pre>
+
+<p>
+两个子层的结构完全对称：<b>算 → dropout → 加残差 → 归一化</b>。
+这个模式会重复 N 次，论文里 N=6，本项目 N=2。
+</p>
+
+<div class="callout key">
+  <span class="label">要点</span>
+  <p>到这里，一个解码器层的所有零件都齐了：多头注意力、FFN、两个 LN、两个残差、两个 dropout。
+  <b>把它们按顺序摆好，就是论文图 1 右半边。</b>下一章只需要再加三样东西：掩码、权重共享、输出层。</p>
+</div>
+
+<div class="endmatter">
+
+<div class="takeaway">
+  <h3>本章要点</h3>
+  <ol>
+    <li>注意力对置换是等变的：打乱输入，输出只是跟着打乱。<b>没有位置编码，模型分不清语序。</b></li>
+    <li>正弦编码的关键性质：PE(pos+k) 是 PE(pos) 的线性函数，相对位置可被线性表达。</li>
+    <li>「可以外推到更长序列」是设计期望，不是实验结论。现代模型多用可学习位置嵌入。</li>
+    <li>残差提供梯度高速公路；它要求子层输出和输入同维度，这就是 W<sup>O</sup> 和 W₂ 的第二个作用。</li>
+    <li>LN 沿特征维归一化，与 batch 和序列长度无关——这是自回归生成能工作的前提。</li>
+    <li><b>Post-LN 不稳定，所以才需要 warmup。</b>这是因果关系，不是两条独立的规则。</li>
+  </ol>
+</div>
+
+<div class="exercises">
+  <h3>习题</h3>
+  <ol>
+    <li>跑 <code>visualize_attention.py</code> 之前，先手工构造 PE 矩阵，画出前 64 个位置的 8 个维度。
+        观察频率差异。</li>
+    <li>把位置编码从模型里去掉（<code>self.pos(x)</code> 改成 <code>x</code>），训练 3000 步。
+        记录最终 loss。和原版比差多少？为什么不是差一点点，而是差很多？</li>
+    <li>把 <code>pe[:, 0::2]</code> 和 <code>pe[:, 1::2]</code> 对调（sin 和 cos 换位置），
+        训练一次。结果有区别吗？这说明什么？
+        <span class="hint">想想这两种编码是不是只差一个相位平移。</span></li>
+    <li>实现一个可学习的位置嵌入 <code>nn.Embedding(max_len, d_model)</code>，替换正弦版本，
+        在同样步数下对比 loss。</li>
+    <li>把 <code>DecoderLayer</code> 改成 Pre-LN（LN 放在子层<b>之前</b>），去掉 warmup（固定学习率），
+        看能不能训起来。<span class="hint">这就是 GPT-2 的做法。</span></li>
+    <li>（思考）为什么 LayerNorm 有可学习的 γ 和 β？如果固定 γ=1, β=0 会怎样？
+        <span class="hint">归一化会强行把每层输出压成均值 0 方差 1，可能损失表达能力。</span></li>
+  </ol>
+</div>
+
+<button class="markread" id="markread">○ 标记本章已读</button>
+
+<div class="chapnav" id="chapnav"></div>
+
+</div>
+
+</main>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

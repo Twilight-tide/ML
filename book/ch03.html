@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第 3 章 · 机器学习的最小闭环 | 读懂 Transformer</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="readbar"></div>
+
+<div class="layout">
+<nav class="toc" id="toc">
+  <div class="toc-brand"><a href="index.html">读懂 Transformer</a></div>
+  <div class="toc-sub">2026 · 第一版</div>
+</nav>
+<main>
+
+<header class="chap-head">
+  <div class="chap-no">Chapter 3</div>
+  <h1>机器学习的最小闭环</h1>
+  <p class="chap-sub">模型、损失、优化，以及一个干净得不像话的梯度</p>
+  <div class="chap-meta">
+    <span>约 2 周</span>
+    <span>需写代码</span>
+    <span>对应 W3–W4</span>
+  </div>
+</header>
+
+<p class="lead">
+上一章你用手算的梯度让一个模型收敛了。但那个问题太简单——损失是平方，梯度是线性的，
+最优解还有闭式公式。真实问题不长这样。这一章要处理第一个「没有闭式解」的问题：分类。
+在解决它的过程中，你会遇到一个结果极其简洁的导数，而<b>整个 Transformer 的训练，本质上就是把那个导数算了几亿次</b>。
+</p>
+
+<h2>3.1 一切监督学习都是同一个三元组</h2>
+
+<p>不管模型多复杂，结构永远是这三件事：</p>
+
+<div class="diagram">
+  <div class="box accent">假设空间<br><span style="font-size:11px;font-weight:400">模型能表达什么</span></div>
+  <span class="arrow">→</span>
+  <div class="box">损失函数<br><span style="font-size:11px">错了有多错</span></div>
+  <span class="arrow">→</span>
+  <div class="box">优化算法<br><span style="font-size:11px">怎么改参数</span></div>
+</div>
+
+<p>
+线性回归的假设空间是「所有线性函数」，损失是 MSE，优化是正规方程或梯度下降。
+逻辑回归的假设空间是「所有线性函数 + sigmoid」，损失换成交叉熵，优化还是梯度下降。
+Transformer 的假设空间是「所有 2 层注意力网络」，损失是交叉熵，优化是 Adam + warmup。
+</p>
+
+<p><b>结构和算法在变，三元组从没变过。</b>所以读任何一篇深度学习论文，都可以先问这三个问题：</p>
+
+<ol>
+<li>它的模型能表达什么？（假设空间）</li>
+<li>它优化什么目标？（损失）</li>
+<li>它怎么优化？（算法、学习率、正则）</li>
+</ol>
+
+<p>论文 §3 回答第一个，§5.3 部分回答第二和第三个。你以后每读一篇新论文，先找这三样，能省一半时间。</p>
+
+<h2>3.2 从回归到分类：加一个 sigmoid 就够了</h2>
+
+<p>分类问题的输出应该是概率，但线性模型的输出是任意实数。解决办法是套一个函数把 ℝ 压到 (0, 1)：</p>
+
+<div class="eq">
+σ(z) = 1 / (1 + e<sup>−z</sup>)
+<span class="where">sigmoid，也叫 logistic 函数</span>
+</div>
+
+<p>它有几个讨喜的性质：σ(0) = 0.5，z → +∞ 时趋于 1，z → −∞ 时趋于 0，而且导数有一个漂亮的形式：</p>
+
+<div class="eq">
+σ′(z) = σ(z)(1 − σ(z))
+<span class="where">求导时分子分母同乘 e^z 即可验证</span>
+</div>
+
+<p>
+这个性质意味着：<b>导数可以用函数值本身算出来</b>，不需要重新计算指数。
+当你已经算过 p = σ(z)，梯度就是 p(1−p)，几乎免费。这在反向传播里非常有用。
+</p>
+
+<div class="callout warn">
+  <span class="label">陷阱</span>
+  <p>直接写 <code>1 / (1 + np.exp(-z))</code> 在 z = −1000 时会溢出（<code>exp(1000) = inf</code>）。
+  和 softmax 一样需要数值稳定写法。稳妥版本：当 z ≥ 0 时用 <code>1/(1+exp(-z))</code>，
+  否则用 <code>exp(z)/(1+exp(z))</code>。实践中直接调 <code>scipy.special.expit</code> 最省事。</p>
+</div>
+
+<h2>3.3 为什么分类不用均方误差</h2>
+
+<p>既然 MSE 在回归里好用，为什么分类要换成交叉熵？两个理由，第二个更重要。</p>
+
+<h3>理由一：MSE 配 sigmoid 会梯度消失</h3>
+
+<p>设 <i class="v">p</i> = σ(z)，用 MSE 时 L = (p − y)²，对 z 求导：</p>
+
+<div class="eq">
+∂L/∂z = 2(p − y) · σ′(z) = 2(p − y) · p(1 − p)
+</div>
+
+<p>
+假设真实标签 y = 1，模型却给了 p = 0.01（错得很离谱）。梯度约为 2 × (−0.99) × 0.01 × 0.99 ≈ <b>−0.02</b>。
+错得越离谱，梯度反而越小——因为 p(1−p) 在两端趋于 0。<b>模型在最该被纠正的时候，学得最慢。</b>
+</p>
+
+<h3>理由二：交叉熵是最大似然的直接结果</h3>
+
+<p>换个角度推。二分类的似然是：</p>
+
+<div class="eq">
+P(y | <i class="v">x</i>) = p<sup>y</sup>(1−p)<sup>1−y</sup>
+<span class="where">y=1 时取 p，y=0 时取 1−p</span>
+</div>
+
+<p>取负对数，就是交叉熵：</p>
+
+<div class="eq">
+L = −[ y log p + (1 − y) log(1 − p) ]
+</div>
+
+<p>
+<b>交叉熵不是「发明」出来的，是「推导」出来的。</b>它等于「在模型给出的分布下，真实标签出现的概率的负对数」。
+最小化它，就是最大化「模型给正确答案的概率」。
+</p>
+
+<p>多分类时它是：</p>
+
+<div class="eq">
+L = −Σ<sub>i</sub> y<sub>i</sub> log p<sub>i</sub>
+<span class="where">y 是 one-hot，所以实际上只有正确类别那一项非零</span>
+</div>
+
+<p>
+换句话说：<b>多分类交叉熵 = −log(模型给正确类别的概率)</b>。
+模型给正确答案 0.9，损失 0.105；给 0.1，损失 2.303。这个数量级你在第一章的日志里见过。
+</p>
+
+<h2>3.4 那个干净得不像话的梯度</h2>
+
+<p>现在推一个全书最重要的公式。设 logits 为 <i class="v">z</i>，经过 softmax 得到 <i class="v">p</i>，损失是交叉熵：</p>
+
+<div class="eq">
+p<sub>i</sub> = e<sup>z<sub>i</sub></sup> / Σ<sub>j</sub> e<sup>z<sub>j</sub></sup>，
+L = −Σ<sub>i</sub> y<sub>i</sub> log p<sub>i</sub>
+</div>
+
+<p>第一步，算 softmax 的雅可比。对 <i class="v">z<sub>j</sub></i> 求导要分两种情况：</p>
+
+<div class="eq">
+∂p<sub>i</sub>/∂z<sub>j</sub> =
+p<sub>i</sub>(1 − p<sub>i</sub>)　若 i = j<br>
+−p<sub>i</sub>p<sub>j</sub>　　　　　　若 i ≠ j
+<span class="where">可以合并写成 ∂p_i/∂z_j = p_i(δ_ij − p_j)，δ 是克罗内克符号</span>
+</div>
+
+<p>第二步，链式法则：</p>
+
+<div class="eq">
+∂L/∂z<sub>j</sub> = −Σ<sub>i</sub> (y<sub>i</sub>/p<sub>i</sub>) · ∂p<sub>i</sub>/∂z<sub>j</sub>
+= −Σ<sub>i</sub> (y<sub>i</sub>/p<sub>i</sub>) · p<sub>i</sub>(δ<sub>ij</sub> − p<sub>j</sub>)
+</div>
+
+<p>约掉 p<sub>i</sub>：</p>
+
+<div class="eq">
+= −Σ<sub>i</sub> y<sub>i</sub>(δ<sub>ij</sub> − p<sub>j</sub>)
+= −y<sub>j</sub> + p<sub>j</sub> Σ<sub>i</sub> y<sub>i</sub>
+</div>
+
+<p>而 y 是 one-hot，Σ y<sub>i</sub> = 1，于是：</p>
+
+<div class="eq">
+<b>∂L/∂<i class="v">z</i> = <i class="v">p</i> − <i class="v">y</i></b>
+<span class="where">式(3-1)　softmax + 交叉熵的梯度</span>
+</div>
+
+<div class="callout key">
+  <span class="label">要点</span>
+  <p>这个结果值得盯十秒钟。它说：<b>梯度就是「预测分布」减去「真实分布」。</b>
+  模型说 [0.7, 0.2, 0.1]，真相是 [1, 0, 0]，梯度就是 [−0.3, 0.2, 0.1]——
+  把正确类往上推 0.3，把错误类往下压。没有任何多余的项，没有 σ′，没有分母。</p>
+  <p>整个 Transformer 训练时，反向传播的第一站就是它。你后面读到 <code>lossf(logits.view(-1, V), y.view(-1))</code> 时，
+  脑子里应该立刻浮现 <code>p − y</code> 这个式子。</p>
+</div>
+
+<p>
+顺带一提，这也解释了为什么交叉熵配 softmax 不会有 MSE 那样的梯度消失：
+p(1−p) 那个因子被约掉了。<b>这是「损失函数要和输出层匹配」这个原则最经典的例子。</b>
+</p>
+
+<h2>3.5 梯度下降的三种形态</h2>
+
+<table>
+<caption>表 3-1　按每次用多少样本算梯度来分</caption>
+<thead><tr><th>名称</th><th>每次用</th><th>优点</th><th>缺点</th></tr></thead>
+<tbody>
+<tr><td>批量 GD</td><td>全部样本</td><td>梯度准，曲线平滑</td><td>大数据集跑不动，无法在线学习</td></tr>
+<tr><td>随机 GD</td><td>1 个样本</td><td>极快，能跳出局部极小</td><td>梯度噪声大，loss 抖得厉害</td></tr>
+<tr><td><b>小批量</b></td><td>32 / 64 / 256</td><td>兼顾速度与稳定，能吃满 GPU</td><td>多了一个超参 batch size</td></tr>
+</tbody>
+</table>
+
+<p>
+实践中几乎只用小批量，因为 GPU 是并行计算的——批太小浪费算力，批太大显存不够。
+本项目用 32，论文用 25000 个 token（约 1000 个句子对）。<b>batch size 的选择往往由显存决定，而不是由理论决定</b>，
+这一点在 8 GB 的笔记本上体会尤其明显。
+</p>
+
+<p>标准的更新规则是：</p>
+
+<div class="eq">
+<i class="v">θ</i> ← <i class="v">θ</i> − η ∇L(<i class="v">θ</i>)
+<span class="where">η 是学习率</span>
+</div>
+
+<p>
+第 9 章会看到，论文用的不是这个朴素形式，而是 Adam + 一个精心设计的学习率曲线。
+但底层逻辑完全一样：<b>算出梯度，往反方向走一步</b>。
+</p>
+
+<h2>3.6 过拟合：模型开始背答案</h2>
+
+<p>
+第一章你看到验证 loss 在 1750 步后停住了，而训练 loss 还在降。这就是过拟合：
+<b>模型在训练集上越来越好，在没见过的数据上不再变好。</b>
+</p>
+
+<p>判断方法只有一个，但必须严格执行：</p>
+
+<table>
+<thead><tr><th>数据集</th><th>用途</th><th>能不能用来调参</th></tr></thead>
+<tbody>
+<tr><td>训练集 train</td><td>算梯度、更新参数</td><td>—</td></tr>
+<tr><td>验证集 val</td><td>挑超参、判断何时停</td><td><b>能</b></td></tr>
+<tr><td>测试集 test</td><td>最终评估，只跑一次</td><td><b>绝对不能</b></td></tr>
+</tbody>
+</table>
+
+<div class="callout warn">
+  <span class="label">陷阱</span>
+  <p>如果你用测试集反复调超参，测试集就退化成了验证集，你最后报出的数字会系统性偏高。
+  这在论文里是严重的方法论错误，在课程作业里则是最常见的失分点。
+  <b>规矩是：测试集只看一眼，看完就锁起来。</b></p>
+</div>
+
+<p>对付过拟合有四种手段，按性价比排序：</p>
+
+<ol>
+<li><b>更多数据</b>——最有效，但通常做不到。</li>
+<li><b>正则化</b>——给损失加一项 λ‖θ‖²，惩罚大权重。等价于「不鼓励模型对任何特征过度自信」。</li>
+<li><b>早停</b>——验证 loss 开始上升就停。简单粗暴，常被低估。</li>
+<li><b>Dropout</b>——训练时随机把一部分神经元置零。论文 §5.4 用的就是这个，P<sub>drop</sub>=0.1。</li>
+</ol>
+
+<p>
+注意本项目 <code>src/config.py</code> 里 <code>dropout=0.1</code>，和论文一致。
+但 10 万参数的模型配 6 MB 语料，0.1 的 dropout 其实偏小——这就是为什么它会过拟合。
+</p>
+
+<h2>3.7 完整实现：手写逻辑回归</h2>
+
+<p>现在把所有东西拼起来。这段代码你能直接跑，用的是 <code>scikit-learn</code> 自带的数据集，不需要联网。</p>
+
+<pre><code><span class="k">import</span> numpy <span class="k">as</span> np
+<span class="k">from</span> sklearn.datasets <span class="k">import</span> load_breast_cancer
+<span class="k">from</span> sklearn.model_selection <span class="k">import</span> train_test_split
+<span class="k">from</span> sklearn.preprocessing <span class="k">import</span> StandardScaler
+
+<span class="c"># ---------- 数据 ----------</span>
+X, y = load_breast_cancer(return_X_y=<span class="k">True</span>)
+X_tr, X_te, y_tr, y_te = train_test_split(
+    X, y, test_size=<span class="n">0.2</span>, random_state=<span class="n">0</span>, stratify=y)
+
+<span class="c"># 标准化：让每个特征均值 0、方差 1。
+# 不做的话梯度下降会因为特征尺度差异而震荡。</span>
+scaler = StandardScaler().fit(X_tr)
+X_tr, X_te = scaler.transform(X_tr), scaler.transform(X_te)
+
+<span class="c"># ---------- 模型 ----------</span>
+<span class="k">def</span> <span class="fn">sigmoid</span>(z):
+    <span class="s">"""数值稳定版。"""</span>
+    out = np.empty_like(z, dtype=float)
+    pos = z &gt;= <span class="n">0</span>
+    out[pos] = <span class="n">1</span> / (<span class="n">1</span> + np.exp(-z[pos]))
+    ez = np.exp(z[~pos])
+    out[~pos] = ez / (<span class="n">1</span> + ez)
+    <span class="k">return</span> out
+
+w = np.zeros(X_tr.shape[<span class="n">1</span>])
+b = <span class="n">0.0</span>
+lr = <span class="n">0.1</span>
+
+<span class="c"># ---------- 训练 ----------</span>
+<span class="k">for</span> step <span class="k">in</span> range(<span class="n">2000</span>):
+    z = X_tr @ w + b
+    p = sigmoid(z)
+
+    <span class="c"># 交叉熵（加 1e-9 防止 log(0)）</span>
+    loss = -(y_tr * np.log(p + <span class="n">1e-9</span>) +
+             (<span class="n">1</span> - y_tr) * np.log(<span class="n">1</span> - p + <span class="n">1e-9</span>)).mean()
+
+    <span class="c"># 梯度：p - y 再乘 x。（3.4 节的结论）</span>
+    grad_w = X_tr.T @ (p - y_tr) / len(y_tr)
+    grad_b = (p - y_tr).mean()
+
+    w -= lr * grad_w
+    b -= lr * grad_b
+
+    <span class="k">if</span> step % <span class="n">200</span> == <span class="n">0</span>:
+        <span class="k">print</span>(<span class="s">f"step {step:4d}  loss {loss:.4f}"</span>)
+
+<span class="c"># ---------- 评估 ----------</span>
+acc = ((sigmoid(X_te @ w + b) &gt; <span class="n">0.5</span>).astype(int) == y_te).mean()
+<span class="k">print</span>(<span class="s">f"测试集准确率: {acc:.4f}"</span>)</code></pre>
+
+<p>输出大致是：</p>
+
+<pre><code>step    0  loss 0.6931
+step  200  loss 0.1024
+step  400  loss 0.0834
+...
+测试集准确率: 0.9737</code></pre>
+
+<p>
+97.4%，和 <code>sklearn.linear_model.LogisticRegression</code> 差不到 1 个百分点。
+如果你跑出来明显低于这个数，八成是梯度推错了或者忘了标准化。
+</p>
+
+<div class="callout tip">
+  <span class="label">动手</span>
+  <p>把上面这段复制到 <code>exercises/w3_logreg.py</code>，跑一遍。
+  然后做一件更重要的事：<b>故意把梯度写错</b>（比如去掉 <code>/ len(y_tr)</code>），看 loss 怎么崩。
+  你会建立起「梯度错了长什么样」的直觉，这个直觉在第 9 章 debug 训练时会救命。</p>
+</div>
+
+<h2>3.8 距离 Transformer 还有多远</h2>
+
+<p>现在你有了：输入、线性变换、非线性、损失、梯度、更新。这套东西已经能训练一个分类器了。</p>
+
+<p>Transformer 比它多三样东西：</p>
+
+<ol>
+<li><b>多层堆叠</b>——一个线性层不够，要 2 层、6 层、96 层。这就引出了反向传播（第 4 章）。</li>
+<li><b>更复杂的结构</b>——注意力、残差、归一化（第 6–8 章）。但它们的梯度仍然走同一条链。</li>
+<li><b>序列</b>——输入不是一个向量，而是一串 token，而且输出也是一串（第 5 章）。</li>
+</ol>
+
+<p>就这三样。剩下的都是工程细节。</p>
+
+<div class="endmatter">
+
+<div class="takeaway">
+  <h3>本章要点</h3>
+  <ol>
+    <li>一切监督学习 = 假设空间 + 损失函数 + 优化算法。读论文先找这三样。</li>
+    <li>分类用交叉熵不用 MSE，因为 MSE 配 sigmoid 会梯度消失，而交叉熵是最大似然的直接结果。</li>
+    <li><b>softmax + 交叉熵的梯度 = p − y</b>。全书最重要的公式之一，反向传播的起点。</li>
+    <li>batch size 的选择在实践中由显存决定，而不是由理论决定。</li>
+    <li>测试集只能看一次。用它调参，报出的数字就是虚的。</li>
+  </ol>
+</div>
+
+<div class="exercises">
+  <h3>习题</h3>
+  <ol>
+    <li>手推 sigmoid 的导数，验证 σ′(z) = σ(z)(1−σ(z))。</li>
+    <li>把 3.7 的代码改成用 MSE 损失，训练同样的轮数。对比 loss 曲线和最终准确率，解释差异。</li>
+    <li>把 <code>lr</code> 依次设为 0.001、0.01、0.1、1.0，记录最终准确率。找到临界点，并解释为什么再大就崩。</li>
+    <li>去掉 <code>StandardScaler</code>，再跑一次。准确率掉了多少？为什么标准化这么重要？</li>
+    <li>在损失里加 L2 正则 <code>+ lam * (w @ w)</code>，lam 取 0、0.01、0.1，观察训练集和测试集准确率的变化。
+        <span class="hint">典型的过拟合曲线：lam 太小两者差距大，lam 太大两者都低。</span></li>
+    <li>（思考）为什么 <code>grad_b</code> 是 <code>(p - y).mean()</code> 而不是 <code>(p - y).sum()</code>？
+        <span class="hint">看 loss 里那个 .mean()。</span></li>
+  </ol>
+</div>
+
+<button class="markread" id="markread">○ 标记本章已读</button>
+
+<div class="chapnav" id="chapnav"></div>
+
+</div>
+
+</main>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

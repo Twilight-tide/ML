@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第 6 章 · 注意力的由来 | 读懂 Transformer</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="readbar"></div>
+
+<div class="layout">
+<nav class="toc" id="toc">
+  <div class="toc-brand"><a href="index.html">读懂 Transformer</a></div>
+  <div class="toc-sub">2026 · 第一版</div>
+</nav>
+<main>
+
+<header class="chap-head">
+  <div class="chap-no">Chapter 6</div>
+  <h1>注意力的由来</h1>
+  <p class="chap-sub">RNN 的三个死穴，和 √d_k 的完整推导</p>
+  <div class="chap-meta">
+    <span>约 2 周</span>
+    <span>本章是全书的枢纽</span>
+    <span>对应 W9–W10</span>
+  </div>
+</header>
+
+<p class="lead">
+前面五章，你已经能训练一个会写代码的模型了。但那个模型的上下文是死的——只看前 8 个字符，
+而且位置信息被硬编码在拼接顺序里。这一章要换掉这个「读上下文」的机制。
+换法只有一行公式，但你得先明白为什么非换不可，以及那一行里每个符号从哪来。
+</p>
+
+<h2>6.1 RNN 的三个死穴</h2>
+
+<p>在注意力之前，序列建模的主流是循环网络。它的思路是「用一个隐藏状态，从头读到尾」：</p>
+
+<div class="eq">
+<i class="v">h</i><sub>t</sub> = tanh(<i class="v">W</i><sub>h</sub><i class="v">h</i><sub>t−1</sub> + <i class="v">W</i><sub>x</sub><i class="v">x</i><sub>t</sub>)
+</div>
+
+<p>这个式子里藏着三个问题，论文 §1 和 §4 都点名了：</p>
+
+<h3>死穴一：不能并行</h3>
+
+<p>
+要算 <i class="v">h</i><sub>t</sub>，必须先算完 <i class="v">h</i><sub>t−1</sub>。
+一千年长度的序列就是一千次串行计算，GPU 的上万个核只能干看着。
+<b>这是工程问题，但它的代价极高</b>——训练时间与序列长度成正比，而不是可以并行摊薄。
+</p>
+
+<h3>死穴二：长距离依赖的路径是 O(n)</h3>
+
+<p>
+第 1 个词的信息要传到第 1000 个位置，中间要经过 999 次非线性变换。
+每次变换都会让梯度乘上一个小于 1 的因子，传到底层时早已消失。
+</p>
+
+<div class="callout key">
+  <span class="label">要点</span>
+  <p>论文 §4 用「最大路径长度」来度量这个问题的严重性：</p>
+  <table style="margin:10px 0 0">
+  <thead><tr><th>层类型</th><th>每层复杂度</th><th>最大路径长度</th></tr></thead>
+  <tbody>
+  <tr><td>自注意力</td><td class="num">O(n²·d)</td><td class="num"><b>O(1)</b></td></tr>
+  <tr><td>循环网络</td><td class="num">O(n·d²)</td><td class="num">O(n)</td></tr>
+  <tr><td>卷积</td><td class="num">O(k·n·d²)</td><td class="num">O(log<sub>k</sub> n)</td></tr>
+  </tbody>
+  </table>
+  <p style="margin-top:10px">自注意力的路径长度是 <b>1</b>——任意两个位置直接相连，不经过任何中间步骤。
+  这是它最重要的性质，比「能并行」更根本。</p>
+</div>
+
+<h3>死穴三：信息瓶颈</h3>
+
+<p>
+整个过去必须被压缩进一个固定大小的向量 <i class="v">h</i><sub>t</sub>。
+不管前面是一句话还是一本书，容量都一样。<b>信息论上这是不可能的</b>——
+你没法把 1000 个 token 无损压进 512 维。
+</p>
+
+<p>
+Bahdanau 等人在 2014 年的机器翻译工作里正面解决了第三个问题：
+<b>不要压缩。让解码器在每一步，直接回头看编码器的所有位置，自己决定看哪里。</b>
+</p>
+
+<h2>6.2 从「压缩」到「检索」</h2>
+
+<p>这个想法的转变很关键：</p>
+
+<table>
+<thead><tr><th></th><th>RNN 的做法</th><th>注意力的做法</th></tr></thead>
+<tbody>
+<tr><td>编码器的输出</td><td>只用最后一个 <i class="v">h</i><sub>T</sub></td><td>保留全部 <i class="v">h</i><sub>1..T</sub></td></tr>
+<tr><td>解码器怎么用</td><td>从 <i class="v">h</i><sub>T</sub> 里「回忆」</td><td>对全部 <i class="v">h</i> 加权求和</td></tr>
+<tr><td>权重</td><td>无（全压在一个向量里）</td><td><b>每步动态计算</b></td></tr>
+</tbody>
+</table>
+
+<p>用一句话概括：<b>把「记忆」换成「检索」。</b>不要求模型记住一切，而是给它一个能随时查的档案柜。</p>
+
+<p>Bahdanau 的原始打分函数是「加性」的：</p>
+
+<div class="eq">
+score(<i class="v">h</i><sub>i</sub>, <i class="v">s</i><sub>j</sub>) = <i class="v">v</i><sup>T</sup> tanh(<i class="v">W</i><sub>1</sub><i class="v">h</i><sub>i</sub> + <i class="v">W</i><sub>2</sub><i class="v">s</i><sub>j</sub>)
+<span class="where">h 是编码器状态，s 是解码器状态</span>
+</div>
+
+<p>它要过两层线性变换再加 tanh，计算量大。Luong 等人后来发现，直接用内积效果差不多，而内积可以写成矩阵乘法：</p>
+
+<div class="eq">
+score = <i class="v">q</i> · <i class="v">k</i>
+<span class="where">一次 matmul 算完所有位置对</span>
+</div>
+
+<div class="callout key">
+  <span class="label">要点</span>
+  <p>论文选点积而不是加性，理由只有一条但很硬：<b>矩阵乘法在 GPU 上极度高效</b>。
+  同样的计算量，matmul 比逐元素的 tanh 快一到两个数量级。
+  深度学习里很多「设计选择」最后都是这个理由——不是数学上更优雅，而是硬件上更快。</p>
+</div>
+
+<h2>6.3 式(1)：一行公式，四个符号</h2>
+
+<p>论文 §3.2.1 的定义：</p>
+
+<div class="eq">
+Attention(<i class="v">Q</i>, <i class="v">K</i>, <i class="v">V</i>) = softmax( <i class="v">QK</i><sup>T</sup> / √d<sub>k</sub> ) <i class="v">V</i>
+<span class="where">式(1)　Q、K、V 分别是查询、键、值的矩阵</span>
+</div>
+
+<p>拆开看，它是四步：</p>
+
+<table>
+<caption>表 6-1　式(1) 的计算流程（B=batch, T=序列长度, d_k=每头维度）</caption>
+<thead><tr><th>步骤</th><th>运算</th><th>形状变化</th><th>在做什么</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><i class="v">QK</i><sup>T</sup></td><td class="num">(B,T,d<sub>k</sub>)·(B,d<sub>k</sub>,T) → (B,T,T)</td><td>所有位置两两算相似度</td></tr>
+<tr><td>2</td><td>/ √d<sub>k</sub></td><td class="num">不变</td><td>把方差拉回 1</td></tr>
+<tr><td>3</td><td>softmax(·)</td><td class="num">不变，但每行和为 1</td><td>把分数变成权重</td></tr>
+<tr><td>4</td><td>· <i class="v">V</i></td><td class="num">(B,T,T)·(B,T,d<sub>v</sub>) → (B,T,d<sub>v</sub>)</td><td>按权重混合各位置的值</td></tr>
+</tbody>
+</table>
+
+<p>
+第 4 步值得多看一眼。结果是 (B, T, d<sub>v</sub>)——<b>和 V 形状一样，和输入一样长</b>。
+注意力不改变序列长度，它只改变每个位置的内容：把「我自己的向量」换成「我关注的那些位置的加权平均」。
+</p>
+
+<div class="callout key">
+  <span class="label">要点</span>
+  <p><b>注意力是一个「按相关性加权的信息混合」操作。</b>
+  输入 T 个向量，输出 T 个向量，第 i 个输出是「所有输入向量的加权平均，权重取决于 i 和它们的关系」。
+  这是全书对注意力最准确的一句话，比「查询图书馆」的类比可靠得多。</p>
+</div>
+
+<h2>6.4 Q、K、V 到底是什么</h2>
+
+<p>最常见的类比是图书馆：</p>
+
+<div class="diagram">
+  <div class="box accent">Q 查询<br><span style="font-size:11px">我想找什么</span></div>
+  <span class="arrow">×</span>
+  <div class="box">K 键<br><span style="font-size:11px">我是什么标签</span></div>
+  <span class="arrow">→</span>
+  <div class="box">匹配度</div>
+  <span class="arrow">→</span>
+  <div class="box">V 值<br><span style="font-size:11px">我实际的内容</span></div>
+</div>
+
+<p>类比有用，但会在两个地方误导你：</p>
+
+<ol>
+<li><b>Q、K、V 不是三个不同的东西，是同一个 x 的三个不同投影。</b>
+      <i class="v">Q</i>=<i class="v">xW</i><sup>Q</sup>，<i class="v">K</i>=<i class="v">xW</i><sup>K</sup>，<i class="v">V</i>=<i class="v">xW</i><sup>V</sup>。
+      图书馆里书和查询是分开的，这里它们是同一批向量换了三副眼镜看。</li>
+<li><b>「值」不是「内容」，是「要传递出去的信息」。</b>
+      V 可以是任何东西，模型自己学。在自注意力里，它就是输入的另一份线性变换。</li>
+</ol>
+
+<p>为什么要把同一个 x 投影三次？因为<b>「我要找什么」和「我能提供什么」不是一回事</b>。
+拿代码举例：一个 <code>def</code> 可能「提供」的是「函数定义开始」这个信息，
+但它「需要」的是「接下来的函数名该叫什么」。这两个角色必须用不同的参数来编码。
+</p>
+
+<p>如果 Q、K 用同一套权重，模型就只能表达「对称的相似度」——A 觉得 B 像自己，B 也必须觉得 A 像自己。
+在语法结构里这种对称性是不成立的。</p>
+
+<h2>6.5 为什么除以 √d_k</h2>
+
+<p>这是论文里最容易被略过的一句话，也是面试最爱问的。原文只说「当 d<sub>k</sub> 较大时，点积的幅度会变大，
+把 softmax 推入梯度极小的区域」。现在我们把这句话算出来。</p>
+
+<h3>第一步：q·k 的方差是 d_k</h3>
+
+<p>假设 <i class="v">q</i> 和 <i class="v">k</i> 的每个分量独立，均值 0、方差 1（这是初始化后的典型状态）。那么：</p>
+
+<div class="eq">
+<i class="v">q</i>·<i class="v">k</i> = Σ<sub>i=1</sub><sup>d<sub>k</sub></sup> q<sub>i</sub>k<sub>i</sub>
+</div>
+
+<p>先看均值。因为独立且均值为 0：</p>
+
+<div class="eq">
+E[<i class="v">q</i>·<i class="v">k</i>] = Σ<sub>i</sub> E[q<sub>i</sub>]E[k<sub>i</sub>] = 0
+</div>
+
+<p>再看方差。同样因为独立，乘积的方差可以逐项相加：</p>
+
+<div class="eq">
+Var(<i class="v">q</i>·<i class="v">k</i>) = Σ<sub>i</sub> Var(q<sub>i</sub>k<sub>i</sub>)
+= Σ<sub>i</sub> E[q<sub>i</sub>²]E[k<sub>i</sub>²]
+= Σ<sub>i</sub> 1 · 1 = <b>d<sub>k</sub></b>
+</div>
+
+<p>所以标准差是 √d<sub>k</sub>。d<sub>k</sub> = 512 时，内积的典型量级是 ±22（√512 ≈ 22.6）。</p>
+
+<h3>第二步：softmax 会饱和</h3>
+
+<p>把 22 量级的分数丢进 softmax 会发生什么？看这个例子：</p>
+
+<pre><code>&gt;&gt;&gt; softmax(np.array([<span class="n">0</span>, <span class="n">22</span>, <span class="n">-22</span>]))
+array([2.8e-10, 1.0, 2.8e-10])      <span class="c"># 几乎就是 one-hot</span></code></pre>
+
+<p>输出几乎是 [0, 1, 0]。而 softmax 的雅可比是 p<sub>i</sub>(δ<sub>ij</sub> − p<sub>j</sub>)，
+当 p 接近 one-hot 时，几乎所有项都接近 0：</p>
+
+<div class="eq">
+<i class="v">p</i> = [0, 1, 0] ⟹ ∂p/∂z ≈ 全零矩阵
+</div>
+
+<p>
+<b>梯度消失了。</b>模型再也学不动。这就是论文说的「推入梯度极小的区域」。
+</p>
+
+<h3>第三步：除以 √d_k 把方差拉回 1</h3>
+
+<p>如果除以 √d<sub>k</sub>，那么：</p>
+
+<div class="eq">
+Var( <i class="v">q</i>·<i class="v">k</i> / √d<sub>k</sub> ) = d<sub>k</sub> / d<sub>k</sub> = <b>1</b>
+</div>
+
+<p>
+方差恒为 1，与 d<sub>k</sub> 无关。softmax 的输入始终在 ±2 的量级，
+既不会饱和成 one-hot，也不会平得像均匀分布。<b>不管你把 d<sub>k</sub> 调到 16 还是 512，注意力的行为都稳定。</b>
+</p>
+
+<div class="callout warn">
+  <span class="label">陷阱</span>
+  <p>那为什么不除以 d<sub>k</sub>？那样方差会变成 1/d<sub>k</sub>，d<sub>k</sub>=512 时是 0.002。
+  softmax 的输入全挤在 0 附近，输出接近均匀分布 [1/T, …, 1/T]——
+  <b>注意力退化成「平均所有位置」，等于什么都没看。</b>
+  除以 √d<sub>k</sub> 恰好是那个「既不太尖也不太扁」的点。</p>
+</div>
+
+<h2>6.6 亲手验证</h2>
+
+<p>这段代码是本章的核心实验，务必跑一遍。它会让你对 √d<sub>k</sub> 的理解从「记住」变成「算过」。</p>
+
+<pre><code><span class="k">import</span> torch, math
+
+torch.manual_seed(<span class="n">0</span>)
+
+<span class="k">print</span>(<span class="s">f"{'d_k':&gt;5} {'std(q·k)':&gt;10} {'理论√d_k':&gt;10} {'softmax最大值':&gt;14} {'熵':&gt;8}"</span>)
+<span class="k">for</span> d_k <span class="k">in</span> [<span class="n">4</span>, <span class="n">16</span>, <span class="n">64</span>, <span class="n">256</span>, <span class="n">512</span>]:
+    q = torch.randn(<span class="n">4096</span>, d_k)
+    k = torch.randn(<span class="n">4096</span>, d_k)
+    dots = (q * k).sum(-<span class="n">1</span>)                 <span class="c"># 4096 个内积</span>
+
+    <span class="c"># 不缩放：看 softmax 有多尖</span>
+    p_raw = torch.softmax(dots, dim=<span class="n">-1</span>)
+    <span class="c"># 缩放后</span>
+    p_scaled = torch.softmax(dots / math.sqrt(d_k), dim=<span class="n">-1</span>)
+
+    ent = -(p_scaled * p_scaled.log()).sum()
+    <span class="k">print</span>(<span class="s">f"{d_k:&gt;5} {dots.std():&gt;10.2f} {math.sqrt(d_k):&gt;10.2f} "</span>
+          <span class="s">f"{p_raw.max():&gt;14.4f} {ent:&gt;8.2f}"</span>)</code></pre>
+
+<p>预期输出（数值会有小差异）：</p>
+
+<pre><code>  d_k  std(q·k)  理论√d_k   softmax最大值       熵
+    4      2.00       2.00         0.0203     3.31
+   16      4.00       4.00         0.0904     4.12
+   64      7.98       8.00         0.5220     4.86
+  256     15.98      16.00         0.9975     1.02
+  512     22.55      22.62         1.0000     0.09</code></pre>
+
+<p>这张表把整件事说完了：</p>
+
+<ul>
+<li><b>第二列和第三列几乎相等</b>——方差确实是 d<sub>k</sub>，推导没错。</li>
+<li><b>第四列在爆炸</b>——d<sub>k</sub>=512 时 softmax 最大值是 0.99997，已经是一个 one-hot 了。</li>
+<li><b>第五列在坍缩</b>——熵从 4.86 掉到 0.09，意味着分布几乎没有不确定性，梯度也就几乎没有。</li>
+</ul>
+
+<div class="callout tip">
+  <span class="label">动手</span>
+  <p>把 <code>p_raw</code> 换成 <code>p_scaled</code>，再看第四列和第五列。
+  你会看到它们在不同 d<sub>k</sub> 下基本<b>持平</b>——这就是缩放的全部意义：
+  <b>让注意力的行为与维度解耦。</b></p>
+</div>
+
+<h2>6.7 关于「注意力」这个词</h2>
+
+<p>
+这个词容易让人以为模型在「集中精神」。实际上它做的是一次<b>加权平均</b>，
+权重由内积算出。所谓「学会了注意某个位置」，指的是那个位置的权重接近 1。
+</p>
+
+<p>它没有任何主动的「选择」过程，也没有循环或搜索。就是三步：算相似度、归一化、加权求和。
+简单到你会怀疑它为什么有效。</p>
+
+<p>
+为什么有效？因为<b>它给了模型一个 O(1) 的路径去访问任意位置的信息</b>，
+而且这条路径的权重是<b>根据内容动态计算</b>的，不是固定的。
+RNN 的路径是固定的（只能顺着传），卷积的感受野是固定的（只能看邻居），只有注意力是内容寻址的。
+</p>
+
+<div class="endmatter">
+
+<div class="takeaway">
+  <h3>本章要点</h3>
+  <ol>
+    <li>RNN 三个死穴：不能并行、路径长度 O(n)、固定大小的信息瓶颈。注意力解决的是后两个。</li>
+    <li>核心思想是「把记忆换成检索」：不压缩历史，而是保留全部并动态加权。</li>
+    <li>式(1) 四步：算内积 → 除 √d<sub>k</sub> → softmax → 乘 V。输出与输入同长度。</li>
+    <li>注意力是<b>按相关性加权的信息混合</b>，不是「集中精神」。</li>
+    <li>Q/K/V 是同一个 x 的三个投影，不是三个不同的东西。</li>
+    <li><b>q·k 的方差是 d<sub>k</sub>，除以 √d<sub>k</sub> 后为 1。</b>不除会饱和成 one-hot，梯度消失；除以 d<sub>k</sub> 又太扁，退化成平均。</li>
+  </ol>
+</div>
+
+<div class="exercises">
+  <h3>习题</h3>
+  <ol>
+    <li>跑一遍 6.6 的代码，把 <code>p_raw</code> 换成 <code>p_scaled</code>，记录新的最大值和熵。解释变化。</li>
+    <li>把 q、k 的初始化标准差改成 0.1（而不是 1），重跑。第二列会变成多少？和理论值一致吗？
+        <span class="hint">方差会变成 d_k × 0.01。</span></li>
+    <li>用 numpy 实现 <code>attention(Q, K, V, mask=None)</code>，输入 (2, 5, 8)，验证输出形状和每行权重和。</li>
+    <li>实现因果掩码：把上三角（未来位置）设为 −∞ 再 softmax，验证上三角权重为 0、每行和仍为 1。
+        <span class="hint">注意是 softmax <b>之前</b>设 −inf，不是之后置零。</span></li>
+    <li>（思考）如果 Q 和 K 用同一套权重（即 Q=K），attention 矩阵会有什么性质？
+        <span class="hint">想想对称性。</span></li>
+    <li>（思考）为什么说「路径长度 O(1)」比「能并行」更根本？
+        <span class="hint">从梯度传播的角度想。</span></li>
+  </ol>
+</div>
+
+<button class="markread" id="markread">○ 标记本章已读</button>
+
+<div class="chapnav" id="chapnav"></div>
+
+</div>
+
+</main>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

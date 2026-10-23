@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>附录 · 速查表 | 读懂 Transformer</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="readbar"></div>
+
+<div class="layout">
+<nav class="toc" id="toc">
+  <div class="toc-brand"><a href="index.html">读懂 Transformer</a></div>
+  <div class="toc-sub">2026 · 第一版</div>
+</nav>
+<main>
+
+<header class="chap-head">
+  <div class="chap-no">Appendix A</div>
+  <h1>速查表</h1>
+  <p class="chap-sub">公式、维度、代码骨架、报错、调试清单</p>
+  <div class="chap-meta">
+    <span>随时查阅</span>
+    <span>建议打印</span>
+  </div>
+</header>
+
+<h2>A.1 公式速查</h2>
+
+<table>
+<thead><tr><th>名称</th><th>公式</th><th>关键点</th></tr></thead>
+<tbody>
+<tr><td>式(1) 缩放点积注意力</td><td><i class="v">softmax</i>(<i class="v">QK</i><sup>T</sup>/√d<sub>k</sub>)<i class="v">V</i></td><td>√d<sub>k</sub> 把方差从 d<sub>k</sub> 拉回 1</td></tr>
+<tr><td>式(2) 前馈网络</td><td>max(0, <i class="v">xW</i><sub>1</sub>+<i class="v">b</i><sub>1</sub>)<i class="v">W</i><sub>2</sub>+<i class="v">b</i><sub>2</sub></td><td>逐位置独立，d_ff = 4d</td></tr>
+<tr><td>式(3) 学习率</td><td>d<sup>−0.5</sup>·min(step<sup>−0.5</sup>, step·warmup<sup>−1.5</sup>)</td><td>先升后降，峰值在 warmup</td></tr>
+<tr><td>多头</td><td>Concat(head<sub>1..h</sub>)<i class="v">W</i><sup>O</sup></td><td>参数与单头相同，softmax 独立 h 次</td></tr>
+<tr><td>位置编码</td><td>sin/cos(pos/10000<sup>2i/d</sup>)</td><td>PE(pos+k) 是 PE(pos) 的线性变换</td></tr>
+<tr><td>残差 + LN</td><td>LN(<i class="v">x</i> + Sublayer(<i class="v">x</i>))</td><td>Post-LN，论文的原版</td></tr>
+<tr><td>交叉熵梯度</td><td>∂L/∂<i class="v">z</i> = <i class="v">p</i> − <i class="v">y</i></td><td>softmax 的 σ′ 被约掉了</td></tr>
+<tr><td>困惑度</td><td>PPL = e<sup>loss</sup></td><td>等价于「在几个等概率项间犹豫」</td></tr>
+<tr><td>内积方差</td><td>Var(<i class="v">q</i>·<i class="v">k</i>) = d<sub>k</sub></td><td>这是 √d<sub>k</sub> 的全部理由</td></tr>
+</tbody>
+</table>
+
+<h2>A.2 维度速查（B=batch, T=长度, d=64, h=4, d_k=16, V=96）</h2>
+
+<table>
+<thead><tr><th>位置</th><th>形状</th><th>备注</th></tr></thead>
+<tbody>
+<tr><td>token 索引</td><td class="num">(B, T)</td><td>整数</td></tr>
+<tr><td>嵌入</td><td class="num">(B, T, 64)</td><td>× √64 = ×8</td></tr>
+<tr><td>Q / K / V（单头）</td><td class="num">(B, T, 64)</td><td>线性投影后</td></tr>
+<tr><td>Q / K / V（多头）</td><td class="num">(B, 4, T, 16)</td><td>view + transpose</td></tr>
+<tr><td>注意力分数</td><td class="num">(B, 4, T, T)</td><td>O(T²) 的来源</td></tr>
+<tr><td>注意力输出</td><td class="num">(B, 4, T, 16)</td><td>attn @ v</td></tr>
+<tr><td>拼头后</td><td class="num">(B, T, 64)</td><td>transpose + contiguous + view</td></tr>
+<tr><td>FFN 中间</td><td class="num">(B, T, 232)</td><td>本项目 d_ff</td></tr>
+<tr><td>logits</td><td class="num">(B, T, 96)</td><td>= V</td></tr>
+<tr><td>损失输入</td><td class="num">(B·T, 96) vs (B·T,)</td><td>view(-1, V)</td></tr>
+</tbody>
+</table>
+
+<h2>A.3 最小可运行骨架</h2>
+
+<pre><code><span class="k">import</span> math, torch, torch.nn <span class="k">as</span> nn, torch.nn.functional <span class="k">as</span> F
+
+<span class="k">class</span> <span class="fn">Block</span>(nn.Module):
+    <span class="s">"""一个解码器层，30 行。"""</span>
+    <span class="k">def</span> <span class="fn">__init__</span>(self, d=<span class="n">64</span>, h=<span class="n">4</span>, d_ff=<span class="n">232</span>, p=<span class="n">0.1</span>):
+        super().__init__()
+        self.h, self.dk = h, d // h
+        self.qkv = nn.Linear(d, <span class="n">3</span> * d)        <span class="c"># 一次算完 QKV</span>
+        self.o   = nn.Linear(d, d)
+        self.ff  = nn.Sequential(nn.Linear(d, d_ff), nn.ReLU(), nn.Linear(d_ff, d))
+        self.n1, self.n2 = nn.LayerNorm(d), nn.LayerNorm(d)
+        self.dp = nn.Dropout(p)
+
+    <span class="k">def</span> <span class="fn">forward</span>(self, x, mask):
+        B, T, d = x.shape
+        q, k, v = self.qkv(x).chunk(<span class="n">3</span>, dim=-<span class="n">1</span>)
+        <span class="c"># 拆头</span>
+        q, k, v = [t.view(B, T, self.h, self.dk).transpose(<span class="n">1</span>, <span class="n">2</span>) <span class="k">for</span> t <span class="k">in</span> (q, k, v)]
+        <span class="c"># 式(1)</span>
+        s = q @ k.transpose(-<span class="n">2</span>, -<span class="n">1</span>) / math.sqrt(self.dk)
+        s = s.masked_fill(~mask, float(<span class="s">"-inf"</span>))
+        a = self.dp(F.softmax(s, dim=-<span class="n">1</span>)) @ v
+        <span class="c"># 拼头 + 残差 + LN</span>
+        a = a.transpose(<span class="n">1</span>, <span class="n">2</span>).contiguous().view(B, T, d)
+        x = self.n1(x + self.dp(self.o(a)))
+        x = self.n2(x + self.dp(self.ff(x)))
+        <span class="k">return</span> x</code></pre>
+
+<h2>A.4 术语表</h2>
+
+<table>
+<thead><tr><th>中文</th><th>英文</th><th>一句话解释</th></tr></thead>
+<tbody>
+<tr><td>自注意力</td><td>self-attention</td><td>Q/K/V 都来自同一个序列</td></tr>
+<tr><td>交叉注意力</td><td>cross-attention</td><td>Q 来自解码器，K/V 来自编码器</td></tr>
+<tr><td>因果掩码</td><td>causal mask</td><td>屏蔽未来位置的下三角掩码</td></tr>
+<tr><td>缩放点积</td><td>scaled dot-product</td><td>除以 √d_k 的点积注意力</td></tr>
+<tr><td>多头</td><td>multi-head</td><td>在 h 个子空间独立做注意力</td></tr>
+<tr><td>位置编码</td><td>positional encoding</td><td>注入顺序信息的向量</td></tr>
+<tr><td>残差连接</td><td>residual connection</td><td>x + f(x)，梯度高速公路</td></tr>
+<tr><td>层归一化</td><td>layer normalization</td><td>沿特征维归一化</td></tr>
+<tr><td>前馈网络</td><td>feed-forward network</td><td>逐位置的两层 MLP</td></tr>
+<tr><td>权重共享</td><td>weight tying</td><td>输出层复用嵌入矩阵</td></tr>
+<tr><td>预热</td><td>warmup</td><td>学习率从 0 线性升到峰值</td></tr>
+<tr><td>标签平滑</td><td>label smoothing</td><td>把 one-hot 里的一部分概率分给其他类</td></tr>
+<tr><td>困惑度</td><td>perplexity</td><td>e^loss</td></tr>
+<tr><td>自回归</td><td>autoregressive</td><td>用已生成的输出作为下一步输入</td></tr>
+<tr><td>贪心解码</td><td>greedy decoding</td><td>每步取概率最大的（top-k=1）</td></tr>
+<tr><td>束搜索</td><td>beam search</td><td>同时维护 k 条候选路径</td></tr>
+<tr><td>KV 缓存</td><td>KV cache</td><td>缓存已算过的 K/V，避免重复计算</td></tr>
+</tbody>
+</table>
+
+<h2>A.5 常见报错与原因</h2>
+
+<table>
+<thead><tr><th>报错</th><th>原因</th><th>修法</th></tr></thead>
+<tbody>
+<tr><td><code>view size is not compatible with ... stride</code></td><td><code>transpose</code> 后内存不连续</td><td>加 <code>.contiguous()</code> 或用 <code>.reshape()</code></td></tr>
+<tr><td><code>shapes cannot be multiplied</code></td><td>矩阵维度不匹配</td><td>打印每一步的 <code>.shape</code>，逐个对齐</td></tr>
+<tr><td>loss 变成 <code>nan</code></td><td>学习率太大 / 梯度爆炸 / log(0)</td><td>降 lr、加 grad clip、加 1e-9</td></tr>
+<tr><td>loss 完全不降</td><td>学习率小了数量级 / 梯度写错 / 标签错位</td><td><b>先算数值</b>，再看数据，最后看结构</td></tr>
+<tr><td>注意力行和不为 1</td><td>softmax 轴错 / 忘了 keepdims</td><td>检查 <code>dim=-1</code> 和 <code>keepdims</code></td></tr>
+<tr><td>上三角不为 0</td><td>掩码加在 softmax 之后</td><td>改成 softmax 之前 <code>masked_fill(-inf)</code></td></tr>
+<tr><td><code>Expected all tensors to be on the same device</code></td><td>模型在 GPU，数据在 CPU</td><td><code>x.to(device)</code></td></tr>
+<tr><td>显存不足</td><td>batch × T² 太大</td><td>降 batch、降 seq_len、开梯度累积</td></tr>
+<tr><td>生成时越来越慢</td><td>没有 KV cache，每步重算整个前缀</td><td>实现 KV cache（或缩短生成长度）</td></tr>
+</tbody>
+</table>
+
+<h2>A.6 训练不收敛的排查清单</h2>
+
+<p>按这个顺序查，不要跳：</p>
+
+<ol>
+<li><b>数值</b>：初始 loss 是否 ≈ ln(V)？学习率是否和论文公式对得上（用日志反算）？</li>
+<li><b>数据</b>：x 和 y 是否错位一位？有没有 token 全是 0？词表大小和模型配置一致吗？</li>
+<li><b>梯度</b>：打印几个参数的梯度范数。全为 0 说明断了，全是 nan 说明炸了。</li>
+<li><b>结构</b>：残差有没有加？LN 位置对不对？掩码方向反了吗（上三角 vs 下三角）？</li>
+<li><b>容量</b>：最后才怀疑这个。先确认前四项都对。</li>
+</ol>
+
+<div class="callout key">
+  <span class="label">经验</span>
+  <p>80% 的「训练不收敛」问题出在第 1 步和第 2 步，只有不到 5% 出在第 5 步。
+  但初学者 90% 的时间花在第 5 步——加参数、加数据、加层数。<b>顺序错了，努力全废。</b></p>
+</div>
+
+<h2>A.7 一句话总结这本书</h2>
+
+<div class="eq" style="text-align:left;font-family:var(--sans);font-size:15px;line-height:2">
+注意力是一次<b>内容寻址的加权平均</b>；<br>
+多头是<b>在 h 个子空间里各做一次</b>；<br>
+位置编码补上<b>顺序</b>；<br>
+残差和 LN 让<b>深</b>成为可能；<br>
+前馈在每个位置上做<b>非线性加工</b>；<br>
+交叉熵和梯度下降负责让它<b>学会</b>。
+</div>
+
+<div class="endmatter">
+<div class="takeaway">
+  <h3>怎么用这份附录</h3>
+  <ol>
+    <li><b>写代码前</b>看 A.2 的维度表，先把每一步形状写下来再动手。</li>
+    <li><b>报错时</b>查 A.5，多数问题那张表里都有。</li>
+    <li><b>训练不收敛时</b>严格按 A.6 的顺序，不要跳步。</li>
+    <li><b>忘了公式时</b>看 A.1，但别只看结论，想想它是怎么来的。</li>
+  </ol>
+</div>
+
+<button class="markread" id="markread">○ 标记本章已读</button>
+
+<div class="chapnav" id="chapnav"></div>
+
+</div>
+
+</main>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

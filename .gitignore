@@ -178,3 +178,6 @@ transformers_cache/
 ~$*.docx
 ~$*.xlsx
 ~$*.pptx
+
+# WorkBuddy 项目数据（会话记忆、索引等本地状态，不进版本库）
+.workbuddy/

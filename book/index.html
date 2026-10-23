@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>读懂 Transformer · 从一行矩阵乘法到 Attention Is All You Need</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="readbar"></div>
+
+<div class="cover">
+<div class="cover-inner">
+
+  <div class="kicker">A First Book on Machine Learning</div>
+
+  <h1>
+    读懂 Transformer
+    <span class="thin">从一行矩阵乘法，到《Attention Is All You Need》</span>
+  </h1>
+
+  <div class="rule"></div>
+
+  <p class="abstract">
+    这本书只做一件事：让你在 16 周后，能拿着笔在纸上推出注意力机制的每一个公式，
+    并且说清楚作者为什么这样设计、代价是什么、哪里可以改。
+    它假定你会微积分和线性代数，但假定你从没写过一行机器学习代码。
+  </p>
+
+  <div class="meta">
+    <div><b>10</b>章 · 1 附录</div>
+    <div><b>16</b>周 · 112 小时</div>
+    <div><b>0</b>外部依赖</div>
+    <div><b>100,048</b>可复现的参数量</div>
+  </div>
+
+</div>
+</div>
+
+<div class="layout">
+<nav class="toc" id="toc">
+  <div class="toc-brand"><a href="index.html">读懂 Transformer</a></div>
+  <div class="toc-sub">2026 · 第一版</div>
+</nav>
+<main>
+
+<h2 style="margin-top:0">这本书怎么来的</h2>
+
+<p class="lead">
+工作区里躺着一个已经跑通的项目：10 万参数的 Transformer，25 秒训练完，能写出像模像样的 Python 代码。
+但它是别人写的。你能运行它，不等于你懂它。这本书的任务，是把「能运行」变成「能解释、能推导、能改写」。
+</p>
+
+<p>
+《Attention Is All You Need》只有 15 页。真正难的不是那个注意力公式——它只有一行。
+难的是围绕它的一整套约定：残差为什么放在子层外面、LayerNorm 为什么在残差之后、
+位置编码为什么用三角函数、学习率为什么要 warmup。论文对这些问题往往只有一句话，
+而每一句背后都是一篇被省略的引用。
+</p>
+
+<p>
+所以这本书不是论文的注脚，而是<b>论文的前置条件</b>。十章按依赖顺序排列，
+你不可能跳着读——第一章的代码需要第二章的矩阵乘法，第七章的多头注意力需要第六章的方差推导。
+</p>
+
+<h2>三种读法</h2>
+
+<table>
+<thead><tr><th>读法</th><th>适合</th><th>怎么读</th></tr></thead>
+<tbody>
+<tr><td><b>正读</b></td><td>从零开始，每天 1 小时</td><td>一章一周，做完全部习题再往下</td></tr>
+<tr><td><b>倒读</b></td><td>已经会 PyTorch，只想懂 Transformer</td><td>第 6、7、8、9 章 + 第 10 章，其余当参考</td></tr>
+<tr><td><b>查读</b></td><td>卡在某个概念上</td><td>直接翻目录，每章独立成篇</td></tr>
+</tbody>
+</table>
+
+<div class="callout warn">
+  <span class="label">一条硬规则</span>
+  <p>每章的代码必须自己敲一遍。<b>复制粘贴不算</b>——手指的记忆和眼睛的记忆是两回事。
+  书里所有代码都能在你工作区的 <code>.venv</code> 里直接跑，不需要联网，不需要装任何东西。</p>
+</div>
+
+<h2>章目</h2>
+
+<div class="toc-cards">
+  <a class="toc-card" href="ch01.html">
+    <span class="n">Chapter 1</span>
+    <span class="t">先跑起来</span>
+    <span class="d">25 秒、四个脚本、和一些看不懂的图</span>
+  </a>
+  <a class="toc-card" href="ch02.html">
+    <span class="n">Chapter 2</span>
+    <span class="t">把数学翻译成代码</span>
+    <span class="d">内积为什么是相似度，softmax 为什么要减 max</span>
+  </a>
+  <a class="toc-card" href="ch03.html">
+    <span class="n">Chapter 3</span>
+    <span class="t">机器学习的最小闭环</span>
+    <span class="d">模型、损失、优化，以及一个干净得不像话的梯度</span>
+  </a>
+  <a class="toc-card" href="ch04.html">
+    <span class="n">Chapter 4</span>
+    <span class="t">神经网络与反向传播</span>
+    <span class="d">手写一个自动微分引擎，然后手写矩阵求导</span>
+  </a>
+  <a class="toc-card" href="ch05.html">
+    <span class="n">Chapter 5</span>
+    <span class="t">语言模型</span>
+    <span class="d">从 bigram 到神经语言模型，以及困惑度到底在说什么</span>
+  </a>
+  <a class="toc-card" href="ch06.html">
+    <span class="n">Chapter 6</span>
+    <span class="t">注意力的由来</span>
+    <span class="d">RNN 的三个死穴，和 √d_k 的完整推导</span>
+  </a>
+  <a class="toc-card" href="ch07.html">
+    <span class="n">Chapter 7</span>
+    <span class="t">多头注意力</span>
+    <span class="d">拆头、拼头、以及一个必然踩的内存坑</span>
+  </a>
+  <a class="toc-card" href="ch08.html">
+    <span class="n">Chapter 8</span>
+    <span class="t">位置、残差与前馈</span>
+    <span class="d">没有位置编码，模型分不清「狗咬人」和「人咬狗」</span>
+  </a>
+  <a class="toc-card" href="ch09.html">
+    <span class="n">Chapter 9</span>
+    <span class="t">拼装与训练</span>
+    <span class="d">掩码、权重共享、warmup，以及一个真实的 bug</span>
+  </a>
+  <a class="toc-card" href="ch10.html">
+    <span class="n">Chapter 10</span>
+    <span class="t">精读论文</span>
+    <span class="d">逐节导读、表 3 消融、以及论文没讲清楚的地方</span>
+  </a>
+  <a class="toc-card" href="appendix.html">
+    <span class="n">Appendix A</span>
+    <span class="t">速查表</span>
+    <span class="d">公式、维度、术语、报错与调试清单</span>
+  </a>
+</div>
+
+<h2>书中约定</h2>
+
+<p>正文里会出现四种边栏，含义固定：</p>
+
+<div class="callout key">
+  <span class="label">要点</span>
+  <p>这一节必须记住的东西。如果只记一件事，就记它。</p>
+</div>
+
+<div class="callout warn">
+  <span class="label">陷阱</span>
+  <p>几乎所有人都会在这里出错。提前知道能省你三个小时。</p>
+</div>
+
+<div class="callout tip">
+  <span class="label">动手</span>
+  <p>需要你打开终端或编辑器实际做一遍。看看不会让你学会。</p>
+</div>
+
+<p>
+公式编号沿用论文本身：式(1) 是缩放点积注意力，式(2) 是前馈网络，式(3) 是学习率调度。
+提到论文小节时用 §3.2.1 这种写法，方便你对照原文。
+</p>
+
+<h2>你需要准备什么</h2>
+
+<table>
+<thead><tr><th>项目</th><th>要求</th><th>书里怎么处理</th></tr></thead>
+<tbody>
+<tr><td>微积分</td><td>会偏导、链式法则</td><td>第 4 章重新推一遍矩阵形式</td></tr>
+<tr><td>线性代数</td><td>会矩阵乘法、转置</td><td>第 2 章补「内积 = 相似度」这层语义</td></tr>
+<tr><td>概率论</td><td>期望、方差、条件概率</td><td>第 3、6 章用到，随用随讲</td></tr>
+<tr><td>Python</td><td>循环、函数、类</td><td>不教语法</td></tr>
+<tr><td>numpy / PyTorch</td><td><b>不需要</b></td><td>第 2 章从零讲，第 4 章进 PyTorch</td></tr>
+</tbody>
+</table>
+
+<div class="callout tip">
+  <span class="label">打印</span>
+  <p>这本书排版时就考虑了纸张：直接用浏览器「打印 → 另存为 PDF」，会自动隐藏侧栏和导航，
+  保留正文、代码和公式，并尽量避免图表被切断。A4、默认边距即可。</p>
+</div>
+
+<div class="endmatter">
+  <div class="takeaway">
+    <h3>开始之前</h3>
+    <ol>
+      <li>打开终端，进到工作区，激活 <code>.venv</code>，确认 <code>torch.cuda.is_available()</code> 是 <code>True</code>。</li>
+      <li>如果没跑过项目，先跑一遍 <code>python src/train.py</code>，看 25 秒里发生了什么。</li>
+      <li>准备好一个 <code>notes/</code> 目录，第一章会让你往里写东西。</li>
+    </ol>
+  </div>
+</div>
+
+<div class="chapnav" id="chapnav"></div>
+
+</main>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

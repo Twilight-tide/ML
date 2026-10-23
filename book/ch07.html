@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第 7 章 · 多头注意力 | 读懂 Transformer</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="readbar"></div>
+
+<div class="layout">
+<nav class="toc" id="toc">
+  <div class="toc-brand"><a href="index.html">读懂 Transformer</a></div>
+  <div class="toc-sub">2026 · 第一版</div>
+</nav>
+<main>
+
+<header class="chap-head">
+  <div class="chap-no">Chapter 7</div>
+  <h1>多头注意力</h1>
+  <p class="chap-sub">拆头、拼头，以及一个必然踩到的内存坑</p>
+  <div class="chap-meta">
+    <span>约 1 周</span>
+    <span>需写代码</span>
+    <span>对应 W11</span>
+  </div>
+</header>
+
+<p class="lead">
+上一章的注意力只有一个「视角」：它算出一个 T×T 的权重矩阵，然后按这个矩阵混合信息。
+但语言里的关系不止一种——有的头该盯语法（主谓一致），有的该盯指代（它指谁），
+有的该盯局部（相邻字符）。<b>一个 softmax 只能给出一种平均的注意力分配，
+不同的关系模式会互相稀释。</b>多头就是为此而生。
+</p>
+
+<h2>7.1 多头不是「更多的注意力」</h2>
+
+<p>先破除一个常见误解：多头<b>不增加参数量，也不增加计算量</b>。</p>
+
+<table>
+<caption>表 7-1　单头 vs 多头，同样的 d_model=512</caption>
+<thead><tr><th></th><th>单头 (h=1, d_k=512)</th><th>多头 (h=8, d_k=64)</th></tr></thead>
+<tbody>
+<tr><td>W<sup>Q</sup> 形状</td><td class="num">512 × 512</td><td class="num">512 × 512（8 个 512×64 拼成）</td></tr>
+<tr><td>四个投影矩阵参数</td><td class="num">4 × 512²</td><td class="num">4 × 512²</td></tr>
+<tr><td>QK<sup>T</sup> 计算量</td><td class="num">T² × 512</td><td class="num">8 × T² × 64 = T² × 512</td></tr>
+<tr><td>softmax 次数</td><td class="num">1 次（512 维联合）</td><td class="num"><b>8 次（各 64 维独立）</b></td></tr>
+</tbody>
+</table>
+
+<p>
+前三行完全一样。真正的差别在第四行：<b>单头把所有信息压进一个 softmax，多头让 8 个 softmax 各管一摊。</b>
+</p>
+
+<p>论文 §3.2.2 的原话是：</p>
+
+<blockquote style="margin:1.4em 0;padding:2px 0 2px 18px;border-left:2px solid var(--rule);color:var(--ink-2);font-size:14.5px;font-style:italic">
+Multi-head attention allows the model to jointly attend to information from different representation subspaces at different positions. With a single attention head, averaging inhibits this.
+</blockquote>
+
+<p>
+翻译过来：<b>单个注意力头会把「不同的关系模式」平均掉。</b>
+这句话是理解多头的钥匙。想象一个句子，第 3 个词既需要看第 1 个词（主语），
+也需要看第 5 个词（修饰语）。单头只能给出一个折中的权重分布；多头可以让头 A 专心看主语，头 B 专心看修饰语。
+</p>
+
+<div class="callout key">
+  <span class="label">要点</span>
+  <p>多头 = <b>把同一个高维空间切成 h 个子空间，在每个子空间里独立地做一次「算相似度 + softmax + 加权」</b>。
+  参数和算力不变，但归一化的粒度变细了。这是「正交分解」思想在注意力上的应用。</p>
+</div>
+
+<h2>7.2 维度是怎么变的</h2>
+
+<p>这一节是全章最容易出错的地方。请把这张表抄在纸上。</p>
+
+<table>
+<caption>表 7-2　多头注意力的完整维度流（B=batch, T=序列长, d=64, h=4, d_k=16）</caption>
+<thead><tr><th>步骤</th><th>操作</th><th>形状</th></tr></thead>
+<tbody>
+<tr><td>0</td><td>输入 x</td><td class="num">(B, T, 64)</td></tr>
+<tr><td>1</td><td>线性投影 <code>w_q(x)</code></td><td class="num">(B, T, 64)</td></tr>
+<tr><td>2</td><td><code>view(B, T, 4, 16)</code></td><td class="num">(B, T, 4, 16)</td></tr>
+<tr><td>3</td><td><code>transpose(1, 2)</code></td><td class="num">(B, 4, T, 16)</td></tr>
+<tr><td>4</td><td><code>q @ k.transpose(-2,-1)</code></td><td class="num">(B, 4, T, T)</td></tr>
+<tr><td>5</td><td>softmax（最后一维）</td><td class="num">(B, 4, T, T)</td></tr>
+<tr><td>6</td><td><code>attn @ v</code></td><td class="num">(B, 4, T, 16)</td></tr>
+<tr><td>7</td><td><code>transpose(1, 2)</code></td><td class="num">(B, T, 4, 16)</td></tr>
+<tr><td>8</td><td><code>contiguous().view(B, T, 64)</code></td><td class="num">(B, T, 64)</td></tr>
+<tr><td>9</td><td><code>w_o(·)</code></td><td class="num">(B, T, 64)</td></tr>
+</tbody>
+</table>
+
+<p>
+第 2–3 步是「拆头」，第 7–8 步是「拼头」。注意第 3 步和第 7 步用的是<b>同一个 transpose</b>——
+这个操作是自逆的，转两次就回去了。所以代码里看起来像复制粘贴，其实是对的。
+</p>
+
+<div class="callout warn">
+  <span class="label">陷阱</span>
+  <p>第 8 步必须有 <code>.contiguous()</code>。原因见 7.4 节。少了它，PyTorch 会抛出
+  <code>RuntimeError: view size is not compatible with input tensor's size and stride</code>。
+  这是学 Transformer 时最高频的报错，你一定会遇到。</p>
+</div>
+
+<h2>7.3 完整实现</h2>
+
+<pre><code><span class="k">import</span> math, torch, torch.nn <span class="k">as</span> nn, torch.nn.functional <span class="k">as</span> F
+
+<span class="k">class</span> <span class="fn">MultiHeadAttention</span>(nn.Module):
+    <span class="k">def</span> <span class="fn">__init__</span>(self, d_model, n_heads, dropout=<span class="n">0.0</span>):
+        super().__init__()
+        <span class="k">assert</span> d_model % n_heads == <span class="n">0</span>
+        self.h = n_heads
+        self.d_k = d_model // n_heads
+        self.w_q = nn.Linear(d_model, d_model)
+        self.w_k = nn.Linear(d_model, d_model)
+        self.w_v = nn.Linear(d_model, d_model)
+        self.w_o = nn.Linear(d_model, d_model)
+        self.dropout = nn.Dropout(dropout)
+
+    <span class="k">def</span> <span class="fn">forward</span>(self, x, mask=<span class="k">None</span>):
+        B, T, _ = x.shape
+
+        <span class="c"># 1) 投影 + 拆头：(B,T,d) → (B,T,h,d_k) → (B,h,T,d_k)</span>
+        q = self.w_q(x).view(B, T, self.h, self.d_k).transpose(<span class="n">1</span>, <span class="n">2</span>)
+        k = self.w_k(x).view(B, T, self.h, self.d_k).transpose(<span class="n">1</span>, <span class="n">2</span>)
+        v = self.w_v(x).view(B, T, self.h, self.d_k).transpose(<span class="n">1</span>, <span class="n">2</span>)
+
+        <span class="c"># 2) 缩放点积注意力：式(1)</span>
+        scores = q @ k.transpose(-<span class="n">2</span>, -<span class="n">1</span>) / math.sqrt(self.d_k)   <span class="c"># (B,h,T,T)</span>
+        <span class="k">if</span> mask <span class="k">is</span> <span class="k">not</span> <span class="k">None</span>:
+            scores = scores.masked_fill(~mask, float(<span class="s">"-inf"</span>))
+        attn = self.dropout(F.softmax(scores, dim=-<span class="n">1</span>))
+
+        <span class="c"># 3) 加权求和 + 拼头</span>
+        out = attn @ v                                       <span class="c"># (B,h,T,d_k)</span>
+        out = out.transpose(<span class="n">1</span>, <span class="n">2</span>).contiguous().view(B, T, -<span class="n">1</span>)
+
+        <span class="c"># 4) 输出投影 W^O</span>
+        <span class="k">return</span> self.w_o(out), attn</code></pre>
+
+<p>
+这 30 行和 <code>src/model.py</code> 第 65–94 行几乎一致。区别只在那边把 <code>ScaledDotProductAttention</code>
+单独抽成了一个类（为了对照论文 §3.2.1），这里内联了。
+</p>
+
+<h2>7.4 contiguous 到底在解决什么</h2>
+
+<p>这不是 PyTorch 的怪癖，是内存布局的问题。</p>
+
+<p>
+张量在内存里是一维数组加一组「步长」（stride），表示「沿每个维度走一步，在内存里跨多少个元素」。
+一个 <code>(B, T, h, d_k)</code> 的连续张量，步长是 <code>(T·h·d_k, h·d_k, d_k, 1)</code>。
+</p>
+
+<p><code>transpose(1, 2)</code> <b>不搬动数据</b>，它只是交换两个步长：</p>
+
+<pre><code>转置前 stride: (T*h*d_k, h*d_k, d_k, 1)
+转置后 stride: (T*h*d_k, d_k, h*d_k, 1)   <span class="c"># 第 1、2 维的步长交换了</span></code></pre>
+
+<p>
+这时张量在逻辑上是 (B, h, T, d_k)，但内存里还是按原来的顺序排的。
+<code>view</code> 要求「新形状能由连续内存直接切出来」，而现在的步长不满足这个条件，于是报错。
+</p>
+
+<p><code>contiguous()</code> 的作用是<b>真的按新顺序复制一遍内存</b>，之后 <code>view</code> 就合法了。</p>
+
+<pre><code>q = torch.randn(<span class="n">2</span>, <span class="n">4</span>, <span class="n">3</span>, <span class="n">16</span>).transpose(<span class="n">1</span>, <span class="n">2</span>)
+<span class="k">print</span>(q.shape)          <span class="c"># (2, 3, 4, 16)</span>
+<span class="k">print</span>(q.is_contiguous())  <span class="c"># False</span>
+q.view(<span class="n">2</span>, <span class="n">3</span>, <span class="n">64</span>)        <span class="c"># ✗ RuntimeError</span>
+q.contiguous().view(<span class="n">2</span>, <span class="n">3</span>, <span class="n">64</span>)   <span class="c"># ✓</span></code></pre>
+
+<div class="callout tip">
+  <span class="label">动手</span>
+  <p><code>reshape</code> 是 <code>contiguous().view</code> 的安全版本——它会自动判断需不需要复制。
+  所以你也可以写 <code>out.transpose(1,2).reshape(B, T, -1)</code>，效果一样。
+  <b>但你要知道它背后做了什么</b>，否则调试显存问题时你会一头雾水。</p>
+</div>
+
+<h2>7.5 多头到底学到了什么</h2>
+
+<p>
+<code>src/visualize_attention.py</code> 会画出每个头的注意力矩阵。你会看到：</p>
+
+<ul>
+<li>有的头关注<b>对角线</b>——「我自己」，这通常是在做某种身份保持或局部平滑；</li>
+<li>有的头关注<b>上一两个位置</b>——学到的是局部语法（比如 <code>def</code> 后面跟空格再跟名字）；</li>
+<li>有的头关注<b>换行符</b>——在代码语料里，缩进结构极其重要；</li>
+<li>有的头几乎是<b>均匀分布</b>——看起来没学到东西，但它可能在传递某种全局信息。</li>
+</ul>
+
+<p>
+脚本还会打印每个头的<b>注意力熵</b>。熵低说明权重集中（这个头很「专一」），熵高说明分散。
+在 2 层 4 头的模型里，你通常能看到熵的明显分化——这正是多头存在的价值。
+</p>
+
+<div class="callout key">
+  <span class="label">要点</span>
+  <p>不要指望每个头都有可解释的功能。论文自己的可视化（图 3–5）也只展示了少数几个头有清晰模式，
+  其余大多难以命名。<b>「多头分工」是一个倾向，不是保证。</b>
+  后来甚至有工作发现，剪掉大部分头对性能影响很小。这一点第 10 章会再提。</p>
+</div>
+
+<h2>7.6 为什么最后还要一个 W^O</h2>
+
+<p>
+拼起来的 h×d<sub>k</sub> 维向量里，各段来自不同的子空间，语义上并不同质。
+直接把它们当特征用，等于假设「第 1 段的第 3 维」和「第 5 段的第 3 维」可以相加——这没有道理。
+</p>
+
+<p>
+W<sup>O</sup> 的作用就是<b>把这 h 个子空间重新混合成一个统一的表示</b>。
+它是一个 d_model × d_model 的矩阵，参数量和其他三个投影一样多。
+</p>
+
+<p>
+如果去掉 W<sup>O</sup>，各头的信息永远停留在各自的子空间里，后续层无法把它们组合起来。
+<b>多头提供「分工」，W<sup>O</sup> 提供「汇总」。</b>缺一不可。
+</p>
+
+<h2>7.7 在动手之前</h2>
+
+<p>
+这一章的代码不长，但建议你<b>先不看书写一遍</b>，写完再对照。判断标准很简单：
+</p>
+
+<ol>
+<li>能不查资料写出维度流的 9 步；</li>
+<li>能解释 <code>transpose(1,2)</code> 为什么出现两次；</li>
+<li>知道 <code>contiguous()</code> 在哪一步必须加，以及为什么。</li>
+</ol>
+
+<p>三条都过了，再往下读第 8 章。否则后面的残差和 LayerNorm 会让你更晕。</p>
+
+<div class="endmatter">
+
+<div class="takeaway">
+  <h3>本章要点</h3>
+  <ol>
+    <li>多头的参数和计算量与「单头 d_model 维」完全相同，变的是 softmax 的粒度：1 次 → h 次。</li>
+    <li>单个 softmax 会平均掉不同关系模式；多头让不同子空间独立归一化。</li>
+    <li>拆头 = <code>view(B,T,h,d_k).transpose(1,2)</code>；拼头 = 反向操作 + <code>contiguous</code>。</li>
+    <li><code>transpose</code> 只改步长不搬数据，<code>view</code> 要求连续内存，所以要 <code>contiguous()</code>。</li>
+    <li>W<sup>O</sup> 负责把各子空间重新混合。没有它，多头的信息无法被后续层组合。</li>
+  </ol>
+</div>
+
+<div class="exercises">
+  <h3>习题</h3>
+  <ol>
+    <li>不看书写一遍 <code>MultiHeadAttention</code>，跑通，输出形状 (2, 5, 64)。</li>
+    <li>把 <code>n_heads</code> 设为 1 和 4，参数量各是多少？用 <code>sum(p.numel() for p in model.parameters())</code> 验证。</li>
+    <li>去掉 <code>.contiguous()</code>，记录报错信息。然后换成 <code>.reshape()</code>，确认能跑。</li>
+    <li>打印每一步的 <code>.shape</code> 和 <code>is_contiguous()</code>，把 9 步的表格填满。</li>
+    <li>跑 <code>visualize_attention.py</code>，观察 8 个头的熵。哪些头是「专一」的？哪些是「散漫」的？
+        试着给每个头起个名字。</li>
+    <li>（思考）如果 h = d_model（每个头只有 1 维），注意力会变成什么样？
+        <span class="hint">每个头的 score 是一个标量乘积，softmax 在 T 个标量上做。这还有意义吗？</span></li>
+  </ol>
+</div>
+
+<button class="markread" id="markread">○ 标记本章已读</button>
+
+<div class="chapnav" id="chapnav"></div>
+
+</div>
+
+</main>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第 2 章 · 把数学翻译成代码 | 读懂 Transformer</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="readbar"></div>
+
+<div class="layout">
+<nav class="toc" id="toc">
+  <div class="toc-brand"><a href="index.html">读懂 Transformer</a></div>
+  <div class="toc-sub">2026 · 第一版</div>
+</nav>
+<main>
+
+<header class="chap-head">
+  <div class="chap-no">Chapter 2</div>
+  <h1>把数学翻译成代码</h1>
+  <p class="chap-sub">内积为什么是相似度，softmax 为什么要减 max</p>
+  <div class="chap-meta">
+    <span>约 2 周</span>
+    <span>需写代码</span>
+    <span>对应 W1–W2</span>
+  </div>
+</header>
+
+<p class="lead">
+你已经会矩阵乘法了——考试考过，分数还不低。但考试里的矩阵乘法是「算出这个结果」，
+机器学习里的矩阵乘法是「这个结果代表什么」。这两件事之间隔着一层翻译，而这一章就是那层翻译。
+学完它，你看 <code>Q @ K.T</code> 时看到的将不再是数字，而是「每个位置在向其他所有位置问：你和我有多相关」。
+</p>
+
+<h2>2.1 三个必须建立的映射</h2>
+
+<p>整个深度学习，说到底只有三个映射反复出现。它们简单到你会觉得「这不是废话吗」，但正是它们撑起了后面所有推导。</p>
+
+<table>
+<caption>表 2-1　三个映射</caption>
+<thead><tr><th>数学对象</th><th>机器学习里的含义</th><th>在第几章用到</th></tr></thead>
+<tbody>
+<tr><td>向量 <i class="v">x</i> ∈ ℝ<sup>d</sup></td><td>一个对象的特征表示。d 个数字描述它</td><td>贯穿全书</td></tr>
+<tr><td>矩阵乘 <i class="v">Wx</i></td><td>一次线性变换：换坐标系、投影、加权求和</td><td>§3.2 的 W<sup>Q</sup>,W<sup>K</sup>,W<sup>V</sup></td></tr>
+<tr><td>内积 <i class="v">q</i>·<i class="v">k</i></td><td><b>相似度</b>。两个向量的方向有多接近</td><td>式(1) 的核心</td></tr>
+</tbody>
+</table>
+
+<p>
+第一个映射最容易接受：一张 8×8 的手写数字图片，拉直就是 64 维向量；一个字符的嵌入，就是 64 维向量。
+<b>向量不是「一组数」，是「一个东西的坐标」。</b>
+</p>
+
+<p>
+第二个映射需要一点想象。<i class="v">Wx</i> 不是「把 x 变成 y」，而是<b>「把 x 放到另一个坐标系里看」</b>。
+如果 W 是一个把第 1、2 维混合的矩阵，那么变换后的每一维都是原来所有维的加权和。
+论文里的 W<sup>Q</sup> 做的就是这件事：把「字符的语义向量」变成「用于查询的向量」。
+同一个 x，经过三个不同的 W，就得到三种不同的「视角」。
+</p>
+
+<p>第三个映射是这一章的核心，值得单独一节。</p>
+
+<h2>2.2 内积为什么能表示相似度</h2>
+
+<p>内积的定义你熟悉：</p>
+
+<div class="eq">
+<i class="v">q</i> · <i class="v">k</i> = Σ<sub>i</sub> q<sub>i</sub> k<sub>i</sub> = ‖<i class="v">q</i>‖ ‖<i class="v">k</i>‖ cos θ
+<span class="where">θ 是两个向量的夹角</span>
+</div>
+
+<p>
+右边那个等号是关键。它把内积拆成了两部分：<b>长度</b>（‖q‖‖k‖）和<b>方向</b>（cos θ）。
+只看方向的话，内积就是 cos θ 乘以两个长度。方向越接近，cos θ 越接近 1，内积越大；垂直时 cos θ = 0，内积为零。
+</p>
+
+<p>换个角度看，内积还等于「q 在 k 方向上的投影长度」乘以「k 的长度」：</p>
+
+<div class="eq">
+<i class="v">q</i> · <i class="v">k</i> = (‖<i class="v">q</i>‖ cos θ) · ‖<i class="v">k</i>‖
+<span class="where">括号里就是 q 在 k 方向上的投影</span>
+</div>
+
+<p>
+所以「内积大」的意思是：<b>q 有很大一部分落在 k 的方向上</b>。如果 k 代表「这是一个函数定义的开头」，
+q 代表「我现在想找一个函数名」，那么内积大就表示「我现在需要的，恰好是你提供的那种信息」。
+</p>
+
+<div class="callout key">
+  <span class="label">要点</span>
+  <p>注意力机制的全部计算，起点就是一个内积：<i class="v">q</i>·<i class="v">k</i>。
+  它回答的问题只有一个：<b>位置 <i class="v">i</i> 需要的「查询」，和位置 <i class="v">j</i> 提供的「键」，有多匹配。</b>
+  匹配度高，就给 j 更大的权重。就这么简单。</p>
+</div>
+
+<p>
+这里有个容易被忽略的细节：<b>内积同时受方向和长度影响</b>。如果某个 k 的模长特别大，
+它跟谁的內积都会偏大——这不合理，因为「长度」不代表「更相关」。
+这就是为什么后面要用余弦相似度做归一化，也是为什么注意力里要除以 √d<sub>k</sub>（第 6 章会从方差的角度重新推一遍）。
+</p>
+
+<h2>2.3 numpy 的八个动作</h2>
+
+<p>
+不需要学完 numpy。整个项目用到的只有八个动作，下面这张表可以贴在显示器上。
+</p>
+
+<table>
+<thead><tr><th>动作</th><th>作用</th><th>在注意力里的位置</th></tr></thead>
+<tbody>
+<tr><td><code>np.array(...)</code></td><td>建数组</td><td>到处都是</td></tr>
+<tr><td><code>.shape</code></td><td>看形状，返回元组</td><td>调试第一件事</td></tr>
+<tr><td><code>.reshape(...)</code></td><td>改形状，不改数据顺序</td><td>拆头：<code>(B,T,d) → (B,T,h,d_k)</code></td></tr>
+<tr><td><code>.transpose(...)</code> / <code>.T</code></td><td>交换维度</td><td>拼头、算 <code>K.T</code></td></tr>
+<tr><td><code>@</code> / <code>np.matmul</code></td><td>矩阵乘（批量也支持）</td><td>式(1) 的 <code>Q @ K.T</code></td></tr>
+<tr><td><code>.sum(axis=)</code></td><td>沿某轴求和</td><td>softmax 的分母</td></tr>
+<tr><td><code>.max(axis=)</code></td><td>沿某轴取最大</td><td>softmax 减 max</td></tr>
+<tr><td>广播</td><td>形状不同的数组自动对齐</td><td><code>scores / sqrt(d_k)</code></td></tr>
+</tbody>
+</table>
+
+<div class="callout warn">
+  <span class="label">陷阱</span>
+  <p><code>axis</code> 的方向是最容易搞混的。<b><code>axis=0</code> 是「沿着行往下走」，结果是消掉行维度；<code>axis=-1</code> 是「沿着最后一维走」。</b>
+  记住一句话：<b>axis 指的是「被消掉的那一维」，不是「保留的那一维」。</b>
+  softmax 永远在最后一维做，因为那是「对所有候选打分」的方向。</p>
+</div>
+
+<h3>广播是怎么回事</h3>
+
+<p>看这段代码，猜形状：</p>
+
+<pre><code><span class="k">import</span> numpy <span class="k">as</span> np
+
+scores = np.random.randn(<span class="n">2</span>, <span class="n">3</span>)        <span class="c"># 形状 (2, 3)</span>
+scores = scores / np.sqrt(<span class="n">16</span>)       <span class="c"># 标量，无形状，随便除</span>
+
+m = scores.max(axis=<span class="n">-1</span>, keepdims=<span class="k">True</span>)  <span class="c"># 形状 (2, 1)</span>
+out = scores - m                       <span class="c"># (2,3) - (2,1) → (2,3)</span></code></pre>
+
+<p>
+<code>(2,3) - (2,1)</code> 之所以能算，是因为形状为 1 的那一维会被<b>拉伸</b>成 3 份。
+这就是广播：<b>先右对齐，再从右往左比较，要么相等，要么其中一个是 1。</b>
+<code>keepdims=True</code> 的唯一作用就是保住这个 1，让广播能对齐——去掉它，<code>m</code> 会变成形状 <code>(2,)</code>，减法就会沿错误的轴广播，得到完全错误的结果。
+</p>
+
+<div class="callout warn">
+  <span class="label">陷阱</span>
+  <p>忘记 <code>keepdims=True</code> 是 softmax 实现里最高频的 bug，而且它<b>不报错</b>，只是结果悄悄变错。
+  如果你的 attention 权重行和不为 1，先查这里。</p>
+</div>
+
+<h2>2.4 手写 softmax，以及那个必须减掉的 max</h2>
+
+<p>softmax 把一个任意实数向量变成概率分布：</p>
+
+<div class="eq">
+softmax(<i class="v">x</i>)<sub>i</sub> = e<sup>x<sub>i</sub></sup> / Σ<sub>j</sub> e<sup>x<sub>j</sub></sup>
+<span class="where">输出全部为正，且求和为 1</span>
+</div>
+
+<p>它的作用是把「分数」变成「权重」。分数差距越大，输出越接近 one-hot；差距越小，输出越接近均匀分布。</p>
+
+<p>现在写代码。第一版直觉写法：</p>
+
+<pre><code><span class="k">def</span> <span class="fn">softmax_naive</span>(x):
+    e = np.exp(x)
+    <span class="k">return</span> e / e.sum(axis=<span class="n">-1</span>, keepdims=<span class="k">True</span>)</code></pre>
+
+<p>试一下：</p>
+
+<pre><code>&gt;&gt;&gt; softmax_naive(np.array([<span class="n">1.0</span>, <span class="n">2.0</span>, <span class="n">3.0</span>]))
+array([0.09003057, 0.24472847, 0.66524096])   <span class="c"># 求和 = 1，正确</span>
+
+&gt;&gt;&gt; softmax_naive(np.array([<span class="n">1000.0</span>, <span class="n">1001.0</span>, <span class="n">1002.0</span>]))
+array([nan, nan, nan])                        <span class="c"># 炸了</span></code></pre>
+
+<p>
+原因：<code>np.exp(1000)</code> 超出浮点数上限，变成 <code>inf</code>；<code>inf / inf</code> 就是 <code>nan</code>。
+float64 的上限约 1.8×10<sup>308</sup>，取对数得 <b>709</b>——任何超过 709 的输入都会溢出。float32 更惨，阈值只有 <b>88</b>。
+</p>
+
+<p>修法是把分子分母同时除以 e<sup>m</sup>，其中 m 是这一行的最大值：</p>
+
+<div class="eq">
+e<sup>x<sub>i</sub>−m</sup> / Σ<sub>j</sub> e<sup>x<sub>j</sub>−m</sup>
+= (e<sup>x<sub>i</sub></sup> · e<sup>−m</sup>) / (Σ<sub>j</sub> e<sup>x<sub>j</sub></sup> · e<sup>−m</sup>)
+= e<sup>x<sub>i</sub></sup> / Σ<sub>j</sub> e<sup>x<sub>j</sub></sup>
+</div>
+
+<p>
+<b>这是一个恒等变形，数学上结果完全不变</b>。但数值上，减完之后最大值变成 0，
+最大的项是 e<sup>0</sup>=1，其余项都 ≤ 1，永远不会溢出。而非常小的项会下溢成 0，这没关系——它本来就该是 0。
+</p>
+
+<pre><code><span class="k">def</span> <span class="fn">softmax</span>(x, axis=<span class="n">-1</span>):
+    <span class="s">"""数值稳定的 softmax。"""</span>
+    x = x - x.max(axis=axis, keepdims=<span class="k">True</span>)   <span class="c"># 关键：减去最大值</span>
+    e = np.exp(x)
+    <span class="k">return</span> e / e.sum(axis=axis, keepdims=<span class="k">True</span>)
+
+&gt;&gt;&gt; softmax(np.array([<span class="n">1000.0</span>, <span class="n">1001.0</span>, <span class="n">1002.0</span>]))
+array([0.09003057, 0.24472847, 0.66524096])   <span class="c"># 和 [1,2,3] 结果一模一样</span></code></pre>
+
+<p>
+注意最后一行：<code>[1000,1001,1002]</code> 和 <code>[1,2,3]</code> 的 softmax 结果<b>完全相同</b>。
+这不是巧合，是 softmax 的一个性质——<b>它只看相对差距，不看绝对大小</b>。整体平移输入，输出不变。
+</p>
+
+<div class="callout key">
+  <span class="label">要点</span>
+  <p>softmax 对所有输入加同一个常数，输出不变。这个性质在后面的温度采样里会再用到（除以温度等价于缩放差距），
+  也是第 6 章「为什么要除以 √d<sub>k</sub>」的反面——除以 √d<sub>k</sub> 是<b>改变差距的尺度</b>，而不是平移。</p>
+</div>
+
+<h2>2.5 手写矩阵乘法</h2>
+
+<p>写一遍三重循环，你会永远记住 <code>(n,m) @ (m,p) → (n,p)</code> 里那个 m 必须相等：</p>
+
+<pre><code><span class="k">def</span> <span class="fn">matmul_naive</span>(A, B):
+    n, m = A.shape
+    m2, p = B.shape
+    <span class="k">assert</span> m == m2, <span class="s">f"形状不匹配: {A.shape} @ {B.shape}"</span>
+
+    C = np.zeros((n, p))
+    <span class="k">for</span> i <span class="k">in</span> range(n):
+        <span class="k">for</span> j <span class="k">in</span> range(p):
+            s = <span class="n">0.0</span>
+            <span class="k">for</span> k <span class="k">in</span> range(m):
+                s += A[i, k] * B[k, j]    <span class="c"># 第 i 行 · 第 j 列</span>
+            C[i, j] = s
+    <span class="k">return</span> C
+
+A = np.random.randn(<span class="n">3</span>, <span class="n">4</span>)
+B = np.random.randn(<span class="n">4</span>, <span class="n">5</span>)
+<span class="k">assert</span> np.allclose(matmul_naive(A, B), A @ B)</code></pre>
+
+<p>
+现在把它和注意力联系起来。<code>Q @ K.T</code> 里，Q 的每一行是一个查询向量，K.T 的每一列是一个键向量，
+所以结果的第 (i, j) 个元素就是「第 i 个查询和第 j 个键的内积」。
+<b>一个矩阵乘法，一次性算出了所有位置两两之间的相似度。</b>
+</p>
+
+<p>这就是 Transformer 能并行的根本原因：RNN 必须一个时间步一个时间步地传状态，而注意力把所有位置的关系一次性算完。</p>
+
+<div class="callout tip">
+  <span class="label">动手</span>
+  <p>用 <code>np.random.randn(1, 4, 6) @ np.random.randn(1, 6, 4)</code> 试一下。
+  你会得到 <code>(1, 4, 4)</code>——<b>批量矩阵乘对前导维度自动广播</b>。
+  注意力正是靠这个性质，一次处理整个 batch 的所有头。</p>
+</div>
+
+<h2>2.6 线性回归：解析解与迭代解的第一次对照</h2>
+
+<p>
+现在把前面所有东西串起来，做一个最小的机器学习问题。它简单到有闭式解，因此可以<b>验证</b>你的梯度下降写对了没有——
+这是全书唯一一次你能拿到「标准答案」的机会。
+</p>
+
+<p>问题：给 200 个样本，每个样本 3 个特征，找一个 <i class="v">w</i> 使得 <i class="v">Xw</i> 尽量接近 <i class="v">y</i>。损失用均方误差：</p>
+
+<div class="eq">
+L(<i class="v">w</i>) = (1/n) ‖<i class="v">Xw</i> − <i class="v">y</i>‖²
+<span class="where">n 是样本数</span>
+</div>
+
+<p>对 w 求导并令其为零，得到正规方程：</p>
+
+<div class="eq">
+∇L = (2/n) <i class="v">X</i><sup>T</sup>(<i class="v">Xw</i> − <i class="v">y</i>) = 0
+⟹ <i class="v">w</i> = (<i class="v">X</i><sup>T</sup><i class="v">X</i>)<sup>−1</sup> <i class="v">X</i><sup>T</sup><i class="v">y</i>
+</div>
+
+<p>完整代码：</p>
+
+<pre><code><span class="k">import</span> numpy <span class="k">as</span> np
+np.random.seed(<span class="n">0</span>)
+
+<span class="c"># ---- 造数据：y = X · w_true + 噪声 ----</span>
+n, d = <span class="n">200</span>, <span class="n">3</span>
+X = np.random.randn(n, d)
+w_true = np.array([<span class="n">2.0</span>, <span class="n">-1.0</span>, <span class="n">0.5</span>])
+y = X @ w_true + <span class="n">0.1</span> * np.random.randn(n)
+
+<span class="c"># ---- 解法一：正规方程（解析解）----</span>
+w_ls = np.linalg.solve(X.T @ X, X.T @ y)
+<span class="c"># 用 solve 而不是 inv：数值上更稳，也更快</span>
+
+<span class="c"># ---- 解法二：梯度下降（迭代解）----</span>
+w_gd = np.zeros(d)
+lr = <span class="n">0.1</span>
+losses = []
+<span class="k">for</span> step <span class="k">in</span> range(<span class="n">300</span>):
+    pred = X @ w_gd
+    loss = ((pred - y) ** <span class="n">2</span>).mean()
+    losses.append(loss)
+    grad = <span class="n">2</span> * X.T @ (pred - y) / n     <span class="c"># 就是上面推的那个公式</span>
+    w_gd -= lr * grad
+
+<span class="k">print</span>(<span class="s">"真值  "</span>, w_true)
+<span class="k">print</span>(<span class="s">"解析解"</span>, w_ls)
+<span class="k">print</span>(<span class="s">"梯度下降"</span>, w_gd)
+<span class="k">print</span>(<span class="s">"最大差值"</span>, np.abs(w_ls - w_gd).max())</code></pre>
+
+<p>输出：</p>
+
+<pre><code>真值   [ 2.  -1.   0.5]
+解析解 [ 1.99919694 -0.99475108  0.49332657]
+梯度下降 [ 1.99919694 -0.99475108  0.49332657]
+最大差值 3.1e-09</code></pre>
+
+<p>
+两个完全不同的方法，收敛到同一个点，误差在 1e-9 量级。
+这是一个非常重要的心理锚点：<b>梯度下降不是玄学，它是一个确实能找到最优解的算法</b>。
+后面所有神经网络训练——包括 Transformer——用的都是同一个套路，只是损失函数变复杂了，梯度不再有闭式解。
+</p>
+
+<div class="callout key">
+  <span class="label">要点</span>
+  <p>三步走：<b>定义损失 → 求梯度 → 沿负梯度更新</b>。
+  第 3 章会把这个套路用在分类上，第 4 章会把它自动化（反向传播），第 9 章会用在学习率调度上。
+  你现在看到的这条循环，是全书的骨架。</p>
+</div>
+
+<div class="callout warn">
+  <span class="label">陷阱</span>
+  <p>学习率取 1.0 试试。你会发现 loss 变成 <code>nan</code>。
+  梯度下降的稳定条件是 <code>lr &lt; 2/L</code>，L 是损失函数的 Lipschitz 常数（这里约等于 X<sup>T</sup>X 的最大特征值 × 2/n）。
+  学习率太大会让参数在最优解两侧来回震荡，幅度越来越大。第 9 章会讲论文怎么用 warmup 绕开这个问题。</p>
+</div>
+
+<h2>2.7 这一章你要带走的</h2>
+
+<p>
+把这三样东西记住，后面九章都会反复用到：
+</p>
+
+<ol>
+<li><b>内积 = 相似度。</b>它衡量两个向量方向的一致程度。注意力的一切从这里开始。</li>
+<li><b>softmax 只看相对差距，必须减 max。</b>减 max 是恒等变形，但不减就会溢出。</li>
+<li><b>训练 = 定义损失 + 求梯度 + 更新。</b>解析解只在极简问题里存在，之后全靠梯度下降。</li>
+</ol>
+
+<div class="endmatter">
+
+<div class="takeaway">
+  <h3>本章要点</h3>
+  <ol>
+    <li>向量是「一个东西的坐标」，矩阵乘是「换一个坐标系看它」，内积是「两个坐标方向有多接近」。</li>
+    <li>内积 = ‖q‖‖k‖cos θ，本质是投影。它同时受长度和方向影响，这是后面要归一化的原因。</li>
+    <li>softmax 减 max 是恒等变形，数值上把最大指数压到 0，避免 inf/nan。float32 的溢出阈值只有 88。</li>
+    <li><code>axis</code> 指「被消掉的维」；<code>keepdims=True</code> 保住那个 1，否则广播会沿错误的轴进行。</li>
+    <li>正规方程和梯度下降在凸问题上收敛到同一点，误差 1e-9。这是验证梯度是否写对的黄金标准。</li>
+  </ol>
+</div>
+
+<div class="exercises">
+  <h3>习题</h3>
+  <ol>
+    <li>不看代码，手写一个 softmax，然后用 <code>[1000, 1001, 1002]</code> 和 <code>[0, 1, 2]</code> 测试，确认输出相同。</li>
+    <li>把 <code>softmax</code> 里的 <code>keepdims=True</code> 去掉，用一个 <code>(3, 4)</code> 的输入跑一遍。
+        观察输出的形状和行和，解释错在哪。
+        <span class="hint">提示：<code>(3,4) - (3,)</code> 会沿最后一维广播，实际变成了对每一行减去同一个向量。</span></li>
+    <li>用 <code>matmul_naive</code> 计算 <code>Q @ K.T</code>，其中 Q、K 都是 <code>(2, 5, 8)</code>。
+        先想清楚结果形状，再写代码验证。<span class="hint">批量维度需要你自己加两层循环，或者直接用 <code>@</code> 对比。</span></li>
+    <li>把线性回归的学习率改成 0.01、0.5、1.0、1.5，各跑 300 步，画出四条 loss 曲线放在一张图上。
+        描述现象，并解释为什么 1.5 会发散。</li>
+    <li>给线性回归加一个 L2 正则项 λ‖w‖²，重新推导梯度，观察 λ 增大时 w 的模长怎么变。
+        <span class="hint">这就是第 3 章的「权重衰减」。</span></li>
+    <li>（思考题）如果两个向量的内积很大，是「它们很像」还是「它们都很长」？你怎么区分这两种情况？
+        <span class="hint">这是第 6 章 √d_k 那节的入口。</span></li>
+  </ol>
+</div>
+
+<button class="markread" id="markread">○ 标记本章已读</button>
+
+<div class="chapnav" id="chapnav"></div>
+
+</div>
+
+</main>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

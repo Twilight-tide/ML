@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第 5 章 · 语言模型 | 读懂 Transformer</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="readbar"></div>
+
+<div class="layout">
+<nav class="toc" id="toc">
+  <div class="toc-brand"><a href="index.html">读懂 Transformer</a></div>
+  <div class="toc-sub">2026 · 第一版</div>
+</nav>
+<main>
+
+<header class="chap-head">
+  <div class="chap-no">Chapter 5</div>
+  <h1>语言模型</h1>
+  <p class="chap-sub">从 bigram 到神经语言模型，以及困惑度到底在说什么</p>
+  <div class="chap-meta">
+    <span>约 2 周</span>
+    <span>需写代码</span>
+    <span>对应 W7–W8</span>
+  </div>
+</header>
+
+<p class="lead">
+前面四章的模型都只吃一个固定长度的向量。但语言是一串变长的东西，
+而且<b>同一个词在不同上下文里意思不一样</b>。这一章要解决「怎么把序列喂给模型」，
+并且建立本书后面一直要用的度量：交叉熵和困惑度。
+更重要的是，你会亲手做出一个「前 Transformer 时代」的语言模型——
+论文 §1 批判的对象，正是它和它的祖先。
+</p>
+
+<h2>5.1 语言模型的定义</h2>
+
+<p>一个语言模型要回答的问题是：<b>这段文本出现的概率是多少？</b></p>
+
+<div class="eq">
+P(x<sub>1</sub>, x<sub>2</sub>, …, x<sub>T</sub>) = ∏<sub>t=1</sub><sup>T</sup> P(x<sub>t</sub> | x<sub>1</sub>, …, x<sub>t−1</sub>)
+<span class="where">自回归分解，也叫链式法则</span>
+</div>
+
+<p>
+这个等式没有做任何近似，它是概率的链式法则的恒等变形。
+它的意义在于：<b>把「整段文本的概率」拆成了 T 个「给定前文，下一个词是什么」的问题。</b>
+</p>
+
+<p>于是训练目标变成：对每个位置 t，最大化模型给正确答案的概率。取负对数，就是：</p>
+
+<div class="eq">
+L = −(1/T) Σ<sub>t</sub> log P(x<sub>t</sub> | x<sub>&lt;t</sub>)
+<span class="where">平均交叉熵（per-token cross entropy）</span>
+</div>
+
+<p>
+看到了吗？这就是第 3 章的交叉熵，只不过「类别」是词表里的 T 个候选，
+「样本」是序列里的每个位置。<b>语言模型就是一个做了 T 次的分类问题。</b>
+第一章日志里那个 1.78，就是这个式子的值。
+</p>
+
+<div class="callout key">
+  <span class="label">要点</span>
+  <p>语言模型 = 在每个位置做一次「从 V 个候选里选一个」的分类。
+  V 是词表大小（本项目 96，GPT-3 是 50257）。所以输出层是一个 (d_model, V) 的矩阵，
+  它的输出叫 logits（未归一化的分数），经过 softmax 变成概率。</p>
+</div>
+
+<h2>5.2 字符级还是词级</h2>
+
+<table>
+<caption>表 5-1　两种粒度</caption>
+<thead><tr><th></th><th>字符级</th><th>词级</th></tr></thead>
+<tbody>
+<tr><td>词表大小 V</td><td>几十到几百</td><td>几万到几十万</td></tr>
+<tr><td>序列长度 T</td><td>长（一句话几百）</td><td>短（一句话几十）</td></tr>
+<tr><td>嵌入层参数</td><td>V × d（小）</td><td>V × d（巨大）</td></tr>
+<tr><td>未见词</td><td>不存在这个问题</td><td>需要 &lt;UNK&gt; 或子词切分</td></tr>
+<tr><td>适不适合小模型</td><td><b>适合</b></td><td>嵌入层就吃掉全部预算</td></tr>
+</tbody>
+</table>
+
+<p>
+本项目选字符级，理由很直接：词表 96，嵌入层只占 6,144 个参数（总参数的 6%）。
+如果换成 3 万词的词表，嵌入层就是 30000 × 64 = 192 万，直接超预算 19 倍。
+</p>
+
+<div class="callout warn">
+  <span class="label">陷阱</span>
+  <p>字符级的代价是序列变长。同样一段代码，字符级要几百个 token，词级只要几十个。
+  而注意力的计算量是 <b>O(T²·d)</b>——序列翻 5 倍，计算量翻 25 倍。
+  <b>这是本项目把 <code>seq_len</code> 限制在 64 的原因，也是长文本任务必须处理的核心矛盾。</b></p>
+</div>
+
+<p>
+现代大模型用 BPE / SentencePiece 做折中：常见词整词保留，生僻词拆成子词。这是工程折中，
+不影响你对模型结构的理解，本书不展开。
+</p>
+
+<h2>5.3 最简单的语言模型：bigram</h2>
+
+<p>假设下一个字符只依赖前一个字符。那么模型就是一张计数表：</p>
+
+<div class="eq">
+P(x<sub>t</sub> | x<sub>t−1</sub>) = count(x<sub>t−1</sub>, x<sub>t</sub>) / count(x<sub>t−1</sub>)
+</div>
+
+<p>实现只用十行：</p>
+
+<pre><code><span class="k">from</span> collections <span class="k">import</span> Counter, defaultdict
+<span class="k">import</span> math, json
+
+text = open(<span class="s">"data/corpus.txt"</span>, encoding=<span class="s">"utf-8"</span>).read()
+<span class="c"># 用最后 10% 做验证，和 train.py 的划分保持一致</span>
+n = int(len(text) * <span class="n">0.9</span>)
+train, val = text[:n], text[n:]
+
+<span class="c"># ---- 训练：数数 ----</span>
+counts = defaultdict(Counter)
+<span class="k">for</span> a, b <span class="k">in</span> zip(train, train[<span class="n">1</span>:]):
+    counts[a][b] += <span class="n">1</span>
+
+<span class="k">def</span> <span class="fn">prob</span>(a, b, k=<span class="n">0.1</span>):
+    <span class="s">"""加 k 平滑：没见过的大二元组给一个很小的概率，避免 log(0)。"""</span>
+    total = sum(counts[a].values()) + k * <span class="n">96</span>
+    <span class="k">return</span> (counts[a][b] + k) / total
+
+<span class="c"># ---- 评估：验证集上的平均负对数似然 ----</span>
+loss = -sum(math.log(prob(a, b)) <span class="k">for</span> a, b <span class="k">in</span> zip(val, val[<span class="n">1</span>:])) / (len(val) - <span class="n">1</span>)
+<span class="k">print</span>(<span class="s">f"bigram 交叉熵: {loss:.4f}  nats/char"</span>)
+<span class="k">print</span>(<span class="s">f"bigram 困惑度: {math.exp(loss):.2f}"</span>)</code></pre>
+
+<p>
+跑出来交叉熵大概在 2.4–2.8 之间（取决于你的语料），困惑度 11–16。
+<b>记住这个数，它是你要打败的基线。</b>
+</p>
+
+<div class="callout warn">
+  <span class="label">陷阱</span>
+  <p>不加平滑的话，验证集里只要出现一个训练集没见过的字符对，概率就是 0，
+  <code>log(0) = −inf</code>，整个困惑度变成 <code>inf</code>。
+  <b>平滑不是可选项，是让这个指标有意义的前提。</b>这也是纯计数方法的根本弱点：它无法泛化。</p>
+</div>
+
+<h2>5.4 从计数到神经网络</h2>
+
+<p>bigram 的问题很明显：它只看一个字符。</p>
+
+<pre><code>def _get_compiler(self, name):</code></pre>
+
+<p>
+看到 <code>def</code> 后面的下划线，你大概能猜到接下来是个函数名；
+但如果只看前一个字符 <code>f</code>，信息量几乎为零。
+</p>
+
+<p>Bengio 等人在 2003 年提出了解法，结构极其简单：</p>
+
+<div class="diagram">
+  <div class="box">前 8 个字符<br><span style="font-size:11px">查表</span></div>
+  <span class="arrow">→</span>
+  <div class="box">嵌入<br><span style="font-size:11px">8 × d</span></div>
+  <span class="arrow">→</span>
+  <div class="box">拼接<br><span style="font-size:11px">8d</span></div>
+  <span class="arrow">→</span>
+  <div class="box">隐藏层<br><span style="font-size:11px">tanh</span></div>
+  <span class="arrow">→</span>
+  <div class="box accent">下一个字符<br><span style="font-size:11px">V 类</span></div>
+</div>
+
+<p>三个关键改动：</p>
+
+<ol>
+<li><b>用嵌入代替 one-hot。</b>96 维的 one-hot 乘 (96, d) 矩阵，等价于「取出第 i 行」。
+      所以嵌入层本质就是一张查找表，它让相似字符有相似的向量。</li>
+<li><b>用固定窗口代替「只看前一个」。</b>窗口取 8，就能看到 8 个字符的上下文。</li>
+<li><b>用神经网络代替计数。</b>模型可以<b>泛化</b>到没见过的组合——因为它学的是向量的连续表示，而不是离散的格子。</li>
+</ol>
+
+<div class="callout key">
+  <span class="label">要点</span>
+  <p>这就是「神经语言模型」的核心思想，也是论文 §1 的背景：
+  <b>用连续的向量表示 + 神经网络，取代离散计数，从而获得泛化能力。</b>
+  后面从 RNN 到 Transformer 的所有演进，都是在这个框架内换「怎么读上下文」。</p>
+</div>
+
+<h2>5.5 困惑度：让交叉熵变得可解释</h2>
+
+<p>交叉熵的单位是「奈特」，不直观。困惑度（perplexity）是它的指数：</p>
+
+<div class="eq">
+PPL = e<sup>L</sup> = e<sup>−(1/T)Σ log P(x<sub>t</sub>|x<sub>&lt;t</sub>)</sup>
+<span class="where">L 是平均交叉熵（自然对数）</span>
+</div>
+
+<p>它有一个极其好用的解释：</p>
+
+<div class="callout key">
+  <span class="label">要点</span>
+  <p><b>困惑度 ≈ 模型每次在多少个等概率选项之间犹豫。</b><br>
+  均匀瞎猜 96 个字符，PPL = 96。PPL = 7.67，相当于模型已经把候选缩小到 7.67 个。
+  降到 1 就是完美预测——但真实语言有内在随机性，PPL 永远到不了 1。</p>
+</div>
+
+<p>现在看第一章的日志，这些数字就有意义了：</p>
+
+<table>
+<thead><tr><th>步数</th><th class="num">loss</th><th class="num">PPL</th><th>含义</th></tr></thead>
+<tbody>
+<tr><td>1</td><td class="num">4.56</td><td class="num">95.98</td><td>初始化，约等于在 96 个字符里瞎猜</td></tr>
+<tr><td>500</td><td class="num">2.31</td><td class="num">10.03</td><td>已经学会了字符频率和常见搭配</td></tr>
+<tr><td>3000</td><td class="num">2.04</td><td class="num">7.67</td><td>学会了缩进、括号配对等局部结构</td></tr>
+</tbody>
+</table>
+
+<p>
+第 1 步的 4.56 几乎正好等于 ln(96) = 4.564。这不是巧合——初始化的模型输出接近均匀分布，
+交叉熵就是 log(词表大小)。<b>这是一个很好用的 sanity check：训练开始时 loss 应该 ≈ ln(V)。</b>
+如果你的初始 loss 差很远，多半是初始化或数据有问题。
+</p>
+
+<h2>5.6 怎么从模型里采样</h2>
+
+<p>训练完，模型给的是每个位置的概率分布。怎么选下一个字符，是一门小手艺。</p>
+
+<h3>温度</h3>
+
+<p>在 softmax 之前把 logits 除以温度 T：</p>
+
+<div class="eq">
+p<sub>i</sub> = softmax(z<sub>i</sub> / T)
+</div>
+
+<ul>
+<li><b>T &lt; 1</b>：分布变尖，高概率的更高，输出更保守、更重复。</li>
+<li><b>T = 1</b>：原始分布。</li>
+<li><b>T &gt; 1</b>：分布变平，低概率的也有机会，输出更随机、更容易出错。</li>
+</ul>
+
+<p>
+注意 T → 0 时退化成 argmax（永远选最可能的），T → ∞ 时退化成均匀分布。
+它<b>不改变排序，只改变「敢不敢冒险」</b>。
+</p>
+
+<h3>Top-k 与 Top-p</h3>
+
+<p>
+温度有一个问题：它把概率质量也分给了明显不合理的候选。生成 300 个字符，
+只要有一次选到荒谬的字符，整段就毁了。
+</p>
+
+<p>
+Top-k 的解法是：只保留概率最高的 k 个，其余置为 −∞ 再归一化。
+本项目默认 k=40。<b>k=1 就是贪心解码</b>——每次都选最可能的，结果是确定性的、容易陷入循环。
+</p>
+
+<p>
+Top-p（核采样）是更精细的版本：按概率从高到低累加，凑够 p（比如 0.9）就截断。
+好处是候选数量随分布形状自适应：模型很确定时只留几个，不确定时留很多。
+</p>
+
+<pre><code><span class="k">def</span> <span class="fn">sample_next</span>(logits, temperature=<span class="n">0.8</span>, top_k=<span class="n">40</span>):
+    logits = logits / max(temperature, <span class="n">1e-6</span>)
+
+    <span class="k">if</span> top_k <span class="k">is</span> <span class="k">not</span> <span class="k">None</span>:
+        v, _ = torch.topk(logits, min(top_k, logits.size(<span class="n">-1</span>)))
+        logits[logits &lt; v[..., -<span class="n">1</span>, <span class="k">None</span>]] = float(<span class="s">"-inf"</span>)
+
+    probs = torch.softmax(logits, dim=<span class="n">-1</span>)
+    <span class="k">return</span> torch.multinomial(probs, num_samples=<span class="n">1</span>)</code></pre>
+
+<p>这段就是 <code>src/model.py</code> 里 <code>generate</code> 的核心，只是那里写得更紧凑。</p>
+
+<h2>5.7 语料是怎么来的</h2>
+
+<p>打开 <code>src/prepare_data.py</code>，它做三件事：</p>
+
+<ol>
+<li><b>遍历标准库目录</b>，收集所有 <code>.py</code> 文件，跳过 <code>test</code>、<code>idlelib</code> 等目录。</li>
+<li><b>截取前 6 MB</b>，拼成一个字符串。</li>
+<li><b>按字符频率取前 96 个</b>，构成词表，写入 <code>vocab.json</code>。</li>
+</ol>
+
+<p>
+第 3 步有个细节值得注意：<b>按频率取前 N 个，意味着低频字符被直接丢弃。</b>
+脚本会打印覆盖率，本项目是 99.996%——也就是说，大约 0.004% 的字符在训练时被跳过了。
+</p>
+
+<p>
+这 0.004% 里主要是中文注释、特殊符号、生僻的 Unicode。影响可以忽略，但你要知道它存在：
+<b>模型的输出永远只可能是那 96 个字符之一。</b>它没法生成一个「没见过」的字符。
+</p>
+
+<div class="callout tip">
+  <span class="label">动手</span>
+  <p>打开 <code>data/vocab.json</code>，看 <code>itos</code> 的前 10 项。
+  你会发现它们是空格、e、t、s、r、a……完全符合英文文本的字符频率。
+  <b>这 96 个字符的顺序，就是模型输出层的类别顺序。</b></p>
+</div>
+
+<h2>5.8 完整实现：MLP 语言模型</h2>
+
+<p>把 5.4 的结构写出来，大约 40 行：</p>
+
+<pre><code><span class="k">import</span> torch, torch.nn <span class="k">as</span> nn
+
+<span class="k">class</span> <span class="fn">MLPLanguageModel</span>(nn.Module):
+    <span class="k">def</span> <span class="fn">__init__</span>(self, vocab=<span class="n">96</span>, ctx=<span class="n">8</span>, d=<span class="n">32</span>, hidden=<span class="n">128</span>):
+        super().__init__()
+        self.ctx = ctx
+        self.embed = nn.Embedding(vocab, d)          <span class="c"># 查找表</span>
+        self.net = nn.Sequential(
+            nn.Linear(ctx * d, hidden), nn.ReLU(),
+            nn.Linear(hidden, vocab),
+        )
+
+    <span class="k">def</span> <span class="fn">forward</span>(self, idx):
+        <span class="c"># idx: (B, ctx) → 嵌入 (B, ctx, d) → 拉平 (B, ctx*d)</span>
+        x = self.embed(idx).view(idx.size(<span class="n">0</span>), -<span class="n">1</span>)
+        <span class="k">return</span> self.net(x)                          <span class="c"># (B, vocab) logits</span>
+
+<span class="c"># ---- 训练 ----</span>
+model = MLPLanguageModel()
+opt = torch.optim.Adam(model.parameters(), lr=<span class="n">1e-3</span>)
+lossf = nn.CrossEntropyLoss()
+
+<span class="k">for</span> step <span class="k">in</span> range(<span class="n">3000</span>):
+    x, y = get_batch(data, ctx=<span class="n">8</span>, batch=<span class="n">64</span>)   <span class="c"># x: (64,8), y: (64,)</span>
+    loss = lossf(model(x), y)
+    opt.zero_grad(); loss.backward(); opt.step()</code></pre>
+
+<p>
+注意 <code>forward</code> 里那个 <code>.view(B, -1)</code>：它把 8 个字符的嵌入<b>首尾拼接</b>成一个 256 维向量。
+这个「拼接」正是 MLP 语言模型的死穴——<b>它把位置信息硬编码进了结构里</b>：
+第 1 个字符永远在 0–31 维，第 8 个永远在 224–255 维。窗口一变，权重全部作废。
+</p>
+
+<p>
+这正是论文要解决的问题之一。Transformer 不用拼接，它用注意力让每个位置<b>动态地</b>决定看谁——
+但位置信息又必须另外想办法加进去（第 8 章的位置编码）。<b>绕了一圈，问题没消失，只是换了个地方。</b>
+</p>
+
+<h2>5.9 距离 Transformer 还差什么</h2>
+
+<p>你现在有一个能生成代码的模型了。它和 Transformer 的差距在三个地方：</p>
+
+<table>
+<thead><tr><th>问题</th><th>MLP-LM 的做法</th><th>Transformer 的做法</th><th>在第几章</th></tr></thead>
+<tbody>
+<tr><td>上下文长度固定</td><td>窗口 8，写死</td><td>注意力看全部历史</td><td>6</td></tr>
+<tr><td>位置信息</td><td>嵌在拼接顺序里</td><td>显式位置编码</td><td>8</td></tr>
+<tr><td>无法并行？</td><td>其实能</td><td>也能，且更长</td><td>7</td></tr>
+</tbody>
+</table>
+
+<p>
+第二行是理解 Transformer 的关键。MLP 的位置信息是<b>隐式</b>的——藏在「谁在第几段」里，
+模型没法表达「第 3 个字符和第 7 个字符有关」这种关系。注意力把这个关系<b>显式化</b>成了一个矩阵，
+每个位置可以独立地、动态地决定关注谁。
+</p>
+
+<div class="endmatter">
+
+<div class="takeaway">
+  <h3>本章要点</h3>
+  <ol>
+    <li>语言模型 = 自回归分解 + 每个位置做一次 V 类分类。<b>训练目标就是平均交叉熵。</b></li>
+    <li>字符级词表小、无需处理未登录词，适合小模型；代价是序列长，注意力开销 O(T²)。</li>
+    <li>bigram 是计数基线，必须加平滑，否则 log(0) 会让困惑度变成 inf。</li>
+    <li>困惑度 = e<sup>loss</sup> ≈ 「在多少个等概率选项间犹豫」。初始 loss ≈ ln(V) 是个好用的 sanity check。</li>
+    <li>温度改变分布的尖锐程度，top-k/top-p 截断长尾。二者解决的是不同问题。</li>
+    <li>MLP-LM 把上下文拼接，位置信息隐式写死——这是它被注意力取代的原因之一。</li>
+  </ol>
+</div>
+
+<div class="exercises">
+  <h3>习题</h3>
+  <ol>
+    <li>跑一遍 bigram，记录困惑度。然后把手写窗口从 1 改成 2（trigram），再跑一次。降了多少？
+        <span class="hint">注意：trigram 的稀疏性问题会严重得多。</span></li>
+    <li>把 <code>prob</code> 里的平滑系数 k 设为 0、0.01、0.1、1.0，观察验证集困惑度。
+        画出「k–困惑度」曲线，找到最优值，并解释为什么两端都差。</li>
+    <li>实现 MLP-LM，训练到收敛。和 bigram 的困惑度对比。</li>
+    <li>用训练好的 MLP-LM 采样，温度取 0.3 / 0.8 / 1.5，各生成 200 字符。描述差别。
+        <span class="hint">温度低会重复，温度高会出现荒谬的字符组合。</span></li>
+    <li>把 <code>ctx</code> 从 8 改成 16，参数量增加多少？困惑度改善多少？值得吗？</li>
+    <li>（思考）为什么初始 loss 应该约等于 ln(V)？如果实测是 2.0 而不是 4.56，可能出了什么问题？
+        <span class="hint">想想输出层权重的初始化。</span></li>
+  </ol>
+</div>
+
+<button class="markread" id="markread">○ 标记本章已读</button>
+
+<div class="chapnav" id="chapnav"></div>
+
+</div>
+
+</main>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

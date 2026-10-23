@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第 9 章 · 拼装与训练 | 读懂 Transformer</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="readbar"></div>
+
+<div class="layout">
+<nav class="toc" id="toc">
+  <div class="toc-brand"><a href="index.html">读懂 Transformer</a></div>
+  <div class="toc-sub">2026 · 第一版</div>
+</nav>
+<main>
+
+<header class="chap-head">
+  <div class="chap-no">Chapter 9</div>
+  <h1>拼装与训练</h1>
+  <p class="chap-sub">掩码、权重共享、warmup，以及一个真实的 bug</p>
+  <div class="chap-meta">
+    <span>约 1 周</span>
+    <span>需写代码</span>
+    <span>对应 W13</span>
+  </div>
+</header>
+
+<p class="lead">
+零件都齐了。这一章把它们装成一台机器，然后让它转起来。
+装的过程中有三处细节容易被忽略：掩码加在哪、嵌入为什么要缩放、学习率为什么长成那个形状。
+最后我会讲一个真实的 bug——它让训练看起来「模型太小」，实际上是学习率小了三个数量级。
+</p>
+
+<h2>9.1 因果掩码：为什么必须在 softmax 之前</h2>
+
+<p>自回归生成的核心约束是：<b>预测第 t 个字符时，只能看到前 t−1 个。</b>
+但注意力的计算是对所有位置一次性完成的，第 1 个位置天然能「看到」第 100 个位置。
+必须人为遮住。
+</p>
+
+<pre><code>mask = torch.tril(torch.ones(T, T, dtype=torch.bool))
+<span class="c"># [[1 0 0 0]</span>
+<span class="c">#  [1 1 0 0]</span>
+<span class="c">#  [1 1 1 0]</span>
+<span class="c">#  [1 1 1 1]]   True = 允许注意</span>
+
+scores = scores.masked_fill(~mask, float(<span class="s">"-inf"</span>))
+attn = F.softmax(scores, dim=-<span class="n">1</span>)</code></pre>
+
+<p>为什么是 softmax <b>之前</b>？两种做法的差别很大：</p>
+
+<table>
+<thead><tr><th>做法</th><th>结果</th></tr></thead>
+<tbody>
+<tr><td>softmax 前设 −inf</td><td>未来位置的 e<sup>−∞</sup> = 0，<b>行和自动等于 1</b></td></tr>
+<tr><td>softmax 后置 0</td><td>行和变成 0.6，<b>不再是概率分布</b>，需要手动重新归一化</td></tr>
+</tbody>
+</table>
+
+<p>
+数学上，e<sup>−∞</sup> 精确等于 0，所以 softmax 会自动把概率质量重新分配到允许的位置上——
+这是一个「免费的」归一化。
+</p>
+
+<div class="callout warn">
+  <span class="label">陷阱</span>
+  <p>用 <code>float("-inf")</code> 而不是 <code>-1e9</code>。
+  后者在 fp16 下经过 softmax 可能留下 1e-38 量级的残留权重，虽然极小但不为 0。
+  更糟的是，如果一行<b>全部</b>被掩蔽，<code>-inf</code> 会得到 <code>nan</code>，而 <code>-1e9</code> 会得到均匀分布——
+  前者会立刻暴露 bug，后者会静默出错。<b>让错误显形，比让它隐藏好。</b></p>
+</div>
+
+<p>
+这也是为什么第一章那张注意力热图的<b>右上角是黑的</b>：那些位置是「未来」，
+权重被强制设为 0。左下角是亮的，因为每个位置都能看到自己和所有过去。
+</p>
+
+<h2>9.2 拼装完整模型</h2>
+
+<pre><code><span class="k">class</span> <span class="fn">TinyTransformer</span>(nn.Module):
+    <span class="k">def</span> <span class="fn">__init__</span>(self, vocab_size, d_model, n_heads, d_ff,
+                 n_layers, max_len, dropout=<span class="n">0.1</span>, tie_weights=<span class="k">True</span>):
+        super().__init__()
+        self.d_model = d_model
+
+        self.embed = nn.Embedding(vocab_size, d_model)
+        self.pos = PositionalEncoding(d_model, max_len, dropout)
+        self.layers = nn.ModuleList([
+            DecoderLayer(d_model, n_heads, d_ff, dropout)
+            <span class="k">for</span> _ <span class="k">in</span> range(n_layers)
+        ])
+        self.norm_out = nn.LayerNorm(d_model)
+        self.head = nn.Linear(d_model, vocab_size, bias=<span class="k">False</span>)
+
+        <span class="c"># §3.4 权重共享：输出层直接复用嵌入矩阵</span>
+        <span class="k">if</span> tie_weights:
+            self.head.weight = self.embed.weight
+
+        self.scale = math.sqrt(d_model)   <span class="c"># §3.4 嵌入缩放</span>
+        self.apply(self._init_weights)
+
+    <span class="k">def</span> <span class="fn">_init_weights</span>(self, m):
+        <span class="k">if</span> isinstance(m, nn.Linear):
+            nn.init.normal_(m.weight, std=<span class="n">0.02</span>)
+            <span class="k">if</span> m.bias <span class="k">is</span> <span class="k">not</span> <span class="k">None</span>:
+                nn.init.zeros_(m.bias)
+        <span class="k">elif</span> isinstance(m, nn.Embedding):
+            nn.init.normal_(m.weight, std=<span class="n">0.02</span>)
+        <span class="k">elif</span> isinstance(m, nn.LayerNorm):
+            nn.init.zeros_(m.bias)
+            nn.init.ones_(m.weight)
+
+    <span class="k">def</span> <span class="fn">forward</span>(self, idx, return_attn=<span class="k">False</span>):
+        B, T = idx.shape
+
+        x = self.embed(idx) * self.scale    <span class="c"># §3.4</span>
+        x = self.pos(x)
+
+        mask = torch.tril(torch.ones(T, T, dtype=torch.bool, device=idx.device))
+
+        attns = []
+        <span class="k">for</span> layer <span class="k">in</span> self.layers:
+            x, a = layer(x, mask)
+            attns.append(a)
+
+        logits = self.head(self.norm_out(x))
+
+        <span class="k">return</span> (logits, attns) <span class="k">if</span> return_attn <span class="k">else</span> logits</code></pre>
+
+<p>三个细节值得单独说。</p>
+
+<h3>为什么嵌入要乘 √d_model</h3>
+
+<p>
+位置编码的值域是 [−1, 1]，而嵌入初始化是 N(0, 0.02²)，数值在 ±0.06 左右。
+两者相加，位置信息会<b>淹没</b>语义信息。
+</p>
+
+<p>
+乘以 √d_model 之后，嵌入的量级被抬到和位置编码相当（因为向量的 L2 范数大致随 √d 增长）。
+论文 §3.4 只说了一句「we multiply the embedding by √d_model」，原因就是这个量级匹配。
+</p>
+
+<h3>为什么输出层没有 bias</h3>
+
+<p>
+因为它和嵌入矩阵共享权重。如果加 bias，就破坏了「同一套语义空间」的对称性。
+而且嵌入矩阵本身没有 bias，共享的话形状也对不上。
+</p>
+
+<h3>权重共享省了多少</h3>
+
+<div class="eq">
+不共享：2 × 96 × 64 = 12,288<br>
+共享：　1 × 96 × 64 = <b>6,144</b>
+<span class="where">本项目省了一半的嵌入参数</span>
+</div>
+
+<p>
+在论文的规模下（V=37000, d=512），这一项是 1900 万参数，占总量的 29%。
+<b>共享与否，直接决定了模型能不能塞进显存。</b>
+</p>
+
+<p>
+而且它在语义上是合理的：输入和输出都是「字符的向量表示」，
+用同一个空间来描述「字符长什么样」和「下一个字符可能是谁」，本来就该共享。
+</p>
+
+<h2>9.3 学习率：式(3)</h2>
+
+<p>论文 §5.3 的调度是全书最容易被抄错的公式：</p>
+
+<div class="eq">
+lrate = d<sub>model</sub><sup>−0.5</sup> · min( step<sup>−0.5</sup>, step · warmup<sup>−1.5</sup> )
+<span class="where">式(3)</span>
+</div>
+
+<p>它的形状是「先线性上升，再按平方根衰减」：</p>
+
+<div class="diagram">
+  <div class="box">0 → 200 步<br><span style="font-size:11px">线性上升</span></div>
+  <span class="arrow">→</span>
+  <div class="box accent">200 步<br><span style="font-size:11px">峰值</span></div>
+  <span class="arrow">→</span>
+  <div class="box">200 → 3000 步<br><span style="font-size:11px">∝ 1/√step</span></div>
+</div>
+
+<p>用本项目的参数验算一遍（d=64, warmup=200）：</p>
+
+<table>
+<thead><tr><th>步数</th><th>公式</th><th class="num">学习率</th><th class="num">日志实测</th></tr></thead>
+<tbody>
+<tr><td>250</td><td>0.125 × 250<sup>−0.5</sup></td><td class="num">7.91e−03</td><td class="num">7.91e−03</td></tr>
+<tr><td>1000</td><td>0.125 × 1000<sup>−0.5</sup></td><td class="num">3.95e−03</td><td class="num">3.95e−03</td></tr>
+<tr><td>3000</td><td>0.125 × 3000<sup>−0.5</sup></td><td class="num">2.28e−03</td><td class="num">2.28e−03</td></tr>
+</tbody>
+</table>
+
+<p>
+三行都对得上。<b>这是检验你有没有读懂式(3) 的最好方式</b>——拿日志里的数字反算，看公式给不给得出同样的值。
+第 10 章会让你对论文再做一次这样的验算。
+</p>
+
+<h3>warmup 到底在防什么</h3>
+
+<p>
+第 8 章说过：Post-LN 在训练初期不稳定。具体来说，训练刚开始时所有参数随机，
+LayerNorm 的输入方差很大，梯度方向剧烈变化。
+如果这时用 5e−3 的学习率，一步就能把参数推到很糟的地方，然后越推越远。
+</p>
+
+<p>
+warmup 让学习率从接近 0 开始，给模型几百步时间「找到方向」，再放开。
+<b>它不是在加速收敛，而是在避免早期发散。</b>
+</p>
+
+<h2>9.4 Adam：为什么要两个动量</h2>
+
+<p>朴素梯度下降对所有参数用同一个学习率。但不同参数的梯度量级差很多——
+嵌入层的梯度可能很小，LN 的 γ 梯度可能很大。用同一个 η，要么小的学不动，要么大的炸掉。
+</p>
+
+<p>Adam 维护两个滑动平均：</p>
+
+<div class="eq">
+<i class="v">m</i><sub>t</sub> = β<sub>1</sub><i class="v">m</i><sub>t−1</sub> + (1−β<sub>1</sub>)<i class="v">g</i><sub>t</sub>　　（一阶矩，梯度的均值）<br>
+<i class="v">v</i><sub>t</sub> = β<sub>2</sub><i class="v">v</i><sub>t−1</sub> + (1−β<sub>2</sub>)<i class="v">g</i><sub>t</sub><sup>2</sup>　（二阶矩，梯度的方差）
+</div>
+
+<p>然后归一化：</p>
+
+<div class="eq">
+<i class="v">θ</i> ← <i class="v">θ</i> − η · <i class="v">m̂</i><sub>t</sub> / (√<i class="v">v̂</i><sub>t</sub> + ε)
+</div>
+
+<p>
+除以 √v 的作用是<b>把每个参数的更新幅度归一化</b>：梯度大的参数被压住，梯度小的被放大。
+所以 Adam 对学习率的敏感度远低于 SGD——这也是它成为默认选择的原因。
+</p>
+
+<p>论文用 β<sub>1</sub>=0.9, β<sub>2</sub>=0.98, ε=1e−9。注意 β<sub>2</sub> 比常见的 0.999 小，
+意味着二阶矩的窗口更短，对梯度变化反应更快。这在 Transformer 上是有意的选择。</p>
+
+<h2>9.5 训练循环</h2>
+
+<pre><code>opt = torch.optim.Adam(model.parameters(), lr=<span class="n">1.0</span>, betas=(<span class="n">0.9</span>, <span class="n">0.98</span>), eps=<span class="n">1e-9</span>)
+sched = torch.optim.lr_scheduler.LambdaLR(opt, lr_lambda)
+lossf = nn.CrossEntropyLoss()
+
+<span class="k">for</span> step <span class="k">in</span> range(<span class="n">1</span>, cfg.steps + <span class="n">1</span>):
+    x, y = get_batch(train_data)        <span class="c"># y 是 x 右移一位</span>
+
+    logits = model(x)                   <span class="c"># (B, T, V)</span>
+    loss = lossf(logits.view(-<span class="n">1</span>, V), y.view(-<span class="n">1</span>))
+
+    opt.zero_grad(set_to_none=<span class="k">True</span>)
+    loss.backward()
+    torch.nn.utils.clip_grad_norm_(model.parameters(), <span class="n">1.0</span>)
+    opt.step()
+    sched.step()</code></pre>
+
+<p>四行关键代码，每行都有理由：</p>
+
+<ul>
+<li><code>logits.view(-1, V)</code>：CrossEntropyLoss 要求 (N, C) 的输入和 (N,) 的标签，
+       所以要把 (B,T,V) 摊平成 (B·T, V)。<b>这一步把「T 个位置」变成了「B·T 个分类样本」。</b></li>
+<li><code>set_to_none=True</code>：把梯度置为 None 而不是 0，省一次写内存。微小但免费。</li>
+<li><code>clip_grad_norm_(1.0)</code>：梯度裁剪。防止某个 batch 的梯度异常大，把参数一步推飞。
+       论文也用了这个（§5.1）。</li>
+<li><code>sched.step()</code>：注意顺序——<b>先 opt.step() 再 sched.step()</b>，
+       否则第一次更新用的是第 0 步的学习率。</li>
+</ul>
+
+<h2>9.6 那个真实的 bug：学习率小了 1000 倍</h2>
+
+<p>
+这是本项目第一版训练时的真事，值得完整讲一遍，因为它是「症状误导诊断」的典型。
+</p>
+
+<p><b>症状</b>：loss 从 4.57 降到 3.71 就几乎不动了。生成的文本是乱码：</p>
+
+<pre><code>def  ,
+dcul" ac #nok)n
+ ll.,ol)n.=s da&t pp)</code></pre>
+
+<p>
+看起来像「模型容量不够」或「数据不够」。但真正的原因在两行代码：
+</p>
+
+<pre><code><span class="c"># ✗ 有 bug 的写法</span>
+opt = torch.optim.Adam(model.parameters(), lr=<span class="n">1e-3</span>)
+sched = torch.optim.lr_scheduler.LambdaLR(opt, lr_lambda)</code></pre>
+
+<p>
+<code>LambdaLR</code> 的实际学习率是：
+</p>
+
+<div class="eq">
+actual_lr = base_lr × lambda(step)
+</div>
+
+<p>
+而 <code>lr_lambda</code> 返回的是论文式(3) 的值（约 2.28e−3），base_lr 又乘了 1e−3：
+</p>
+
+<div class="eq">
+2.28e−3 × 1e−3 = <b>2.28e−6</b>
+<span class="where">比论文值小了整整三个数量级</span>
+</div>
+
+<p>修正只有一处：</p>
+
+<pre><code>opt = torch.optim.Adam(model.parameters(), lr=<span class="n">1.0</span>)  <span class="c"># ← base_lr 设为 1</span></code></pre>
+
+<div class="callout key">
+  <span class="label">要点</span>
+  <p>这个 bug 的教训不是「LambdaLR 怎么用」，而是方法论：
+  <b>loss 不降时，先把论文里的关键数值算出来，和实际用的对一遍。</b>
+  一算就发现差了 1000 倍，比怀疑模型容量、怀疑数据量快得多。</p>
+  <p>怀疑的顺序应该是：<b>数值 → 数据 → 结构 → 容量</b>。
+  初学者往往反过来，从「模型太小」开始怀疑，然后加参数、加数据、加层数，全部无效。</p>
+</div>
+
+<h2>9.7 生成</h2>
+
+<pre><code><span class="k">@torch.no_grad</span>()
+<span class="k">def</span> <span class="fn">generate</span>(self, idx, max_new_tokens, temperature=<span class="n">1.0</span>, top_k=<span class="k">None</span>):
+    <span class="k">for</span> _ <span class="k">in</span> range(max_new_tokens):
+        <span class="c"># 只保留最近 max_len 个 token（位置编码的窗口）</span>
+        idx_cond = idx[:, -self.pos.pe.size(<span class="n">1</span>):]
+
+        logits = self(idx_cond)[:, -<span class="n">1</span>, :]      <span class="c"># 只要最后一个位置</span>
+        logits = logits / max(temperature, <span class="n">1e-6</span>)
+
+        <span class="k">if</span> top_k <span class="k">is</span> <span class="k">not</span> <span class="k">None</span>:
+            v, _ = torch.topk(logits, min(top_k, logits.size(-<span class="n">1</span>)))
+            logits[logits &lt; v[:, [-<span class="n">1</span>]]] = float(<span class="s">"-inf"</span>)
+
+        probs = F.softmax(logits, dim=-<span class="n">1</span>)
+        nxt = torch.multinomial(probs, num_samples=<span class="n">1</span>)
+        idx = torch.cat([idx, nxt], dim=<span class="n">1</span>)
+
+    <span class="k">return</span> idx</code></pre>
+
+<p>
+两个细节：<b>只取 <code>[:, -1, :]</code></b>（前面的位置已经算过了，虽然这里为了简单每次都重算），
+以及<b>截断到 <code>max_len</code></b>（位置编码只预计算了这么多行）。
+</p>
+
+<p>
+真实推理会做 KV cache：把已算过的 K、V 存起来，每步只算新的一个 token。
+这样复杂度从 O(T²) 降到 O(T)。本项目为了简洁没有实现，但你应该知道它的存在——
+<b>没有 KV cache，大模型根本没法实时对话。</b>
+</p>
+
+<h2>9.8 现在你有了完整的一台机器</h2>
+
+<p>回顾一下整条链路：</p>
+
+<div class="diagram" style="flex-direction:column;gap:6px;align-items:stretch">
+  <div class="box">token 索引 (B, T)</div>
+  <div class="box">↓ 查表 × √d_model</div>
+  <div class="box">嵌入 (B, T, 64)</div>
+  <div class="box">↓ 加位置编码</div>
+  <div class="box accent">× N 层：掩蔽自注意力 → 残差 → LN → FFN → 残差 → LN</div>
+  <div class="box">↓ 输出 LN + 线性层（与嵌入共享）</div>
+  <div class="box">logits (B, T, 96)</div>
+  <div class="box">↓ softmax + 采样</div>
+  <div class="box accent">下一个字符</div>
+</div>
+
+<p>
+这就是论文图 1 右半边，一个不多一个不少（交叉注意力除外，因为本任务没有编码器）。
+</p>
+
+<div class="endmatter">
+
+<div class="takeaway">
+  <h3>本章要点</h3>
+  <ol>
+    <li>掩码必须在 softmax 之前设 −inf，这样 e<sup>−inf</sup>=0，行和自动为 1。</li>
+    <li>嵌入乘 √d_model 是为了和位置编码的量级匹配；输出层无 bias 是因为权重共享。</li>
+    <li>式(3) 先线性升、再按 1/√step 降；warmup 是 Post-LN 的稳定性补丁，不是加速技巧。</li>
+    <li>Adam 用二阶矩归一化每个参数的更新幅度，所以对学习率不敏感。</li>
+    <li>loss 不降时的排查顺序：<b>数值 → 数据 → 结构 → 容量</b>。那个 1000 倍的 bug 就是没查数值。</li>
+  </ol>
+</div>
+
+<div class="exercises">
+  <h3>习题</h3>
+  <ol>
+    <li>把 <code>masked_fill(~mask, -inf)</code> 改成 softmax 之后置零，打印某一行的和。验证它不为 1。</li>
+    <li>用日志里的 lr 反算式(3)，确认 250、1000、3000 步三个点都对得上。</li>
+    <li>把 <code>base_lr</code> 改回 <code>1e-3</code>，训练 3000 步。观察 loss 卡在多少，生成结果什么样。
+        <span class="hint">这就是那个 bug 的复现。</span></li>
+    <li>去掉 <code>clip_grad_norm_</code>，训练一次。有没有出现 loss 突然变成 nan？</li>
+    <li>把 <code>tie_weights</code> 设为 False，参数量变成多少？训练的收敛速度有变化吗？</li>
+    <li>（思考）为什么生成时只取最后一个位置的 logits，而不是全部？
+        <span class="hint">训练时为什么要用全部位置？这两者的差别在哪？</span></li>
+  </ol>
+</div>
+
+<button class="markread" id="markread">○ 标记本章已读</button>
+
+<div class="chapnav" id="chapnav"></div>
+
+</div>
+
+</main>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

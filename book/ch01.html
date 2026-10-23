@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第 1 章 · 先跑起来 | 读懂 Transformer</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="readbar"></div>
+
+<div class="layout">
+<nav class="toc" id="toc">
+  <div class="toc-brand"><a href="index.html">读懂 Transformer</a></div>
+  <div class="toc-sub">2026 · 第一版</div>
+</nav>
+<main>
+
+<header class="chap-head">
+  <div class="chap-no">Chapter 1</div>
+  <h1>先跑起来</h1>
+  <p class="chap-sub">25 秒、四个脚本、和几张你暂时看不懂的图</p>
+  <div class="chap-meta">
+    <span>约 40 分钟</span>
+    <span>不需要写代码</span>
+    <span>对应 W0</span>
+  </div>
+</header>
+
+<p class="lead">
+学任何复杂系统，第一件事都不是读它的说明书，而是把它打开、听它运转、看它哪里在响。
+这一章我们不解释任何原理，只做三件事：跑一遍、算一遍、问一堆问题。
+问题比答案重要——它们会在后面九章里一个接一个被回答。
+</p>
+
+<h2>1.1 这个项目到底在做什么</h2>
+
+<p>
+工作区里有一个训练好的模型，参数量 100,048。它的任务是：<b>给定一段开头，一个字符一个字符地往下写，写出像 Python 的代码</b>。
+</p>
+
+<p>
+这个任务的难度刚好合适。如果让它写小说，你无法判断输出好坏；如果让它做分类，你又看不到「生成」这件事。
+但 Python 代码有极强的局部结构——缩进、冒号、括号配对、<code>def</code> 后面跟函数名——模型学没学到，肉眼就能看出来。
+</p>
+
+<p>
+规模上的对照值得记住，因为它是理解整篇论文的锚点：
+</p>
+
+<table>
+<caption>表 1-1　本项目和论文原版的规模对照</caption>
+<thead><tr><th>项目</th><th class="num">本 书 项 目</th><th class="num">论 文 base</th><th class="num">倍数</th></tr></thead>
+<tbody>
+<tr><td>参数量</td><td class="num">100,048</td><td class="num">65,000,000</td><td class="num">650×</td></tr>
+<tr><td>d_model</td><td class="num">64</td><td class="num">512</td><td class="num">8×</td></tr>
+<tr><td>注意力头数 h</td><td class="num">4</td><td class="num">8</td><td class="num">2×</td></tr>
+<tr><td>层数 N</td><td class="num">2</td><td class="num">6</td><td class="num">3×</td></tr>
+<tr><td>训练耗时</td><td class="num">23 秒</td><td class="num">12 小时 × 8 卡</td><td class="num">约 15000×</td></tr>
+</tbody>
+</table>
+
+<p>
+注意最后一行：参数量只差 650 倍，训练成本却差了四个数量级。这不是因为硬件差距，
+而是因为论文训练了 30 万步、用了 450 万句对、batch size 是 25000 个 token。
+<b>模型大小决定「能学多复杂的东西」，数据量和步数决定「实际学到多少」。</b>这两件事经常被混为一谈。
+</p>
+
+<div class="callout key">
+  <span class="label">要点</span>
+  <p>缩小模型时，真正被砍掉的是<b>容量</b>和<b>数据</b>，而<b>结构</b>可以完整保留。
+  这就是为什么一个 10 万参数的模型仍然能让你理解 6500 万参数模型的每一个设计选择——
+  注意力怎么算、残差怎么连、掩码加在哪，和规模无关。</p>
+</div>
+
+<h2>1.2 跑一遍</h2>
+
+<div class="callout tip">
+  <span class="label">动手</span>
+  <p>打开 PowerShell，进入工作区，激活虚拟环境：</p>
+<pre><code><span class="c"># 进入项目目录</span>
+cd D:\Programming\Machine_Learning
+
+<span class="c"># 激活虚拟环境（提示符前面会出现 (.venv)）</span>
+.\.venv\Scripts\Activate.ps1
+
+<span class="c"># 确认 GPU 能用</span>
+python -c <span class="s">"import torch; print(torch.__version__, torch.cuda.is_available())"</span></code></pre>
+<p>期望输出 <code>2.11.0+cu128 True</code>。如果第二项是 <code>False</code>，说明装成了 CPU 版，
+去看根目录的 <code>环境说明.md</code> 第二节，那里解释了为什么必须用 cu128。</p>
+</div>
+
+<p>然后依次跑三个脚本。每一个都请把终端输出从头看到尾，不要只等它结束。</p>
+
+<h3>第一个：训练</h3>
+
+<pre><code>python src/train.py</code></pre>
+
+<p>输出会长这样（数值可能略有差异，因为你没固定随机种子的一次运行）：</p>
+
+<pre><code>==========================================================================
+训练配置
+==========================================================================
+  设备        : cuda (NVIDIA GeForce RTX 5060 Laptop GPU)
+  d_model=64  n_heads=4  d_k=16  d_ff=232  n_layers=2
+  序列长度=64  批次=32  训练步数=3000
+  学习率预热步数=200（论文 §5.3 式(3)）
+  训练/验证字符数: 5,542,890 / 615,877
+  模型参数量  : 100,048
+
+步       训练loss     验证loss     验证PPL    学习率       耗时
+--------------------------------------------------------------------------
+1        4.5735       4.5642       95.98      4.42e-05     0.4
+250      2.8018       2.6057       13.54      7.91e-03     2.2
+500      2.2014       2.3060       10.03      5.59e-03     4.1
+...
+3000     1.7754       2.0367        7.67      2.28e-03     22.9
+--------------------------------------------------------------------------
+训练完成，模型已保存: results/model.pt</code></pre>
+
+<p>
+四列数字，先记住它们大致长什么样：<b>loss 从 4.57 降到 1.78</b>，困惑度从 95.98 降到 7.67。
+第 5 章会告诉你这两个数字的精确含义，现在你只需要知道：越小越好，而且它在动，说明训练是有效的。
+</p>
+
+<h3>第二个：生成</h3>
+
+<pre><code>python src/generate.py --prompt <span class="s">"def "</span> --tokens 200 --temperature 0.8</code></pre>
+
+<p>你会得到三段「代码」。它们大概率长这样：</p>
+
+<pre><code>def _get_compiler(self, name):
+    if self._config.get_name() is not None:
+        return self._default_value
+
+    def __init__(self):
+        self._name = name
+        return self._name</code></pre>
+
+<p>
+第一眼看，很像。函数定义、缩进、<code>self</code>、<code>return</code>，全都在。
+第二眼看，处处不对：<code>_get_compiler</code> 里调用 <code>_config.get_name()</code>，但 <code>_config</code> 从没定义过；
+一个方法里嵌了一个 <code>__init__</code>；<code>return self._name</code> 返回的东西和函数名毫无关系。
+</p>
+
+<p>
+这个「像而不对」的状态，恰好是 10 万参数模型的能力边界。它学会了<b>语法</b>——什么字符跟在什么后面——但没学会<b>语义</b>，不知道变量要先定义。
+<b>语法是局部的、可以用 n-gram 统计的；语义是全局的、需要跨距离的信息整合。</b>
+Transformer 存在的全部理由，就是后者。
+</p>
+
+<h3>第三个：注意力可视化</h3>
+
+<pre><code>python src/visualize_attention.py</code></pre>
+
+<p>终端会打印数值检查，同时 <code>results/</code> 下多出两张图。打开 <code>attention_heads.png</code>，你会看到 2 行 × 4 列共 8 个小方块（2 层 × 4 头）。</p>
+
+<p>现在请盯着其中任意一张图，回答三个问题——<b>答不出来是正常的，这一章不要求你答出来</b>：</p>
+
+<ol>
+<li>这一格代表什么？横轴和纵轴分别是什么？</li>
+<li>为什么每张图的<b>右上角都是黑的</b>，左下角却是亮的？</li>
+<li>为什么每一行（横向看）的颜色加起来像是有个「总量」，而列看起来没有？</li>
+</ol>
+
+<div class="callout key">
+  <span class="label">留给后面的三个悬念</span>
+  <p>
+  <b>问题 1</b> 在第 6 章回答：这一格是「位置 <i class="v">i</i> 花多少注意力在位置 <i class="v">j</i> 上」。<br>
+  <b>问题 2</b> 在第 9 章回答：因果掩码。生成时不能看未来，所以未来位置的权重被强制设为 0。<br>
+  <b>问题 3</b> 在第 6 章回答：每一行是一个 softmax 的输出，必然求和为 1；列没有这个约束。
+  </p>
+</div>
+
+<h2>1.3 那 100,048 是怎么算出来的</h2>
+
+<p>
+这个数字不是凑出来的，是可以手算的。现在算一遍，因为第 10 章你要对照论文表 1 复核 6500 万，方法是同一个。
+</p>
+
+<p>先看词嵌入。词表 96 个字符，每个映射到 64 维向量：</p>
+
+<div class="eq">
+96 × 64 = <b>6,144</b>
+<span class="where">嵌入矩阵的形状是 (vocab, d_model)</span>
+</div>
+
+<p>再看单个解码器层。它由三部分组成：</p>
+
+<table>
+<caption>表 1-2　单个解码器层的参数</caption>
+<thead><tr><th>子层</th><th>计算</th><th class="num">参数</th></tr></thead>
+<tbody>
+<tr><td>多头注意力 W<sup>Q</sup>,W<sup>K</sup>,W<sup>V</sup>,W<sup>O</sup></td><td>4 × (64×64 + 64)</td><td class="num">16,640</td></tr>
+<tr><td>前馈 W₁</td><td>64×232 + 232</td><td class="num">15,080</td></tr>
+<tr><td>前馈 W₂</td><td>232×64 + 64</td><td class="num">14,912</td></tr>
+<tr><td>两个 LayerNorm</td><td>2 × (64 + 64)</td><td class="num">256</td></tr>
+<tr><td colspan="2"><b>单层合计</b></td><td class="num"><b>46,888</b></td></tr>
+</tbody>
+</table>
+
+<p>两层就是 93,776。最后加上输出前的 LayerNorm（128），以及输出层——但输出层<b>不额外占参数</b>，因为它的权重和嵌入矩阵共享：</p>
+
+<div class="eq">
+6,144 + 2 × 46,888 + 128 = <b>100,048</b>
+<span class="where">嵌入 + 两层 + 输出归一化，输出投影与嵌入共享</span>
+</div>
+
+<div class="callout warn">
+  <span class="label">陷阱</span>
+  <p>如果你自己数一遍发现是 100,048 而不是「正好 100,000」，别怀疑算错。
+  这个数就是这么来的：固定 <code>d_model=64</code>、<code>n_heads=4</code>、<code>n_layers=2</code>、<code>vocab=96</code>，
+  然后解出使总量最接近 10 万的 <code>d_ff</code>，得到 232。它是一个<b>反解出来的</b>超参数，不是经验值。</p>
+</div>
+
+<p>
+顺便说一句，这也是为什么 <code>d_ff=232</code> 看起来这么怪。论文用的是 2048，规整得漂亮，因为没人要求它必须是整数万名。
+你做复现时如果想让参数量更「好看」，可以改 <code>d_ff</code> 到 256，总量会变成 103,536——但那就不再是「10 万参数」这个练习了。
+</p>
+
+<h2>1.4 怎么读训练日志</h2>
+
+<p>日志有六列，每一列都在回答一个不同的问题：</p>
+
+<table>
+<thead><tr><th>列</th><th>含义</th><th>该看什么</th></tr></thead>
+<tbody>
+<tr><td><code>train_loss</code></td><td>训练批次上的平均交叉熵</td><td>整体趋势应该单调下降，允许抖动</td></tr>
+<tr><td><code>val_loss</code></td><td>验证集上的交叉熵</td><td>它开始上升的那一刻，就是过拟合的起点</td></tr>
+<tr><td><code>val_ppl</code></td><td>验证困惑度 = e<sup>val_loss</sup></td><td>更直观：等于「模型每次在多少个字符里犹豫」</td></tr>
+<tr><td><code>lr</code></td><td>当前学习率</td><td>先升后降，峰值出现在第 200 步附近</td></tr>
+<tr><td><code>elapsed_s</code></td><td>累计耗时</td><td>用来估算你的硬件能跑多大模型</td></tr>
+</tbody>
+</table>
+
+<p>把这份日志画成图，你会看到三条形状不同的曲线：</p>
+
+<div class="diagram">
+  <div class="box">train_loss<br><b>持续下降</b></div>
+  <span class="arrow">·</span>
+  <div class="box">val_loss<br><b>1750 步后走平</b></div>
+  <span class="arrow">·</span>
+  <div class="box accent">lr<br><b>先升后降</b></div>
+</div>
+
+<div class="callout warn">
+  <span class="label">陷阱</span>
+  <p>这里最容易得出错误结论。<code>val_loss</code> 在 1750 步后停住、<code>train_loss</code> 还在降，
+  看起来像<b>过拟合</b>。但只要算一下就知道不是：语料 630 万字符、参数 10 万，参数量与训练字符之比是 <b>1 : 57</b>，
+  这个比例离过拟合差得很远。</p>
+  <p>真实原因是<b>训练量只有 1 个 epoch</b>：3000 步 × 32 批 × 64 长 ≈ 614 万 token，而训练集有 567 万字符，
+  模型只看了一遍数据。把训练拉到 4 个 epoch，val_loss 会从 2.06 降到 1.91，PPL 从 7.9 降到 6.8。
+  真正的过拟合要等模型加宽到 41 万参数、训练超过 3 个 epoch 之后才出现。
+  <b>「看起来像」和「算出来是」之间，差着一次除法。</b></p>
+</div>
+
+<h2>1.5 建立你的疑问清单</h2>
+
+<p>
+这一章最重要的产出不是跑通了，而是一份清单。请新建 <code>notes/疑问清单.md</code>，
+把你刚才看到的、所有「这是啥」记下来。不许查，不许问，就写。
+</p>
+
+<p>参考我当年第一次跑这类项目时的清单（你的应该比这更长）：</p>
+
+<pre><code><span class="c"># 疑问清单</span>
+
+1. d_model 和 d_k 是什么关系？为什么 d_k = 16？
+2. 4 层头和 64 维到底哪个更大？多头是并行还是串联？
+3. 位置编码那串 sin/cos 是干嘛的？不加会怎样？
+4. 为什么 loss 一开始是 4.57？这个数字能预测吗？
+5. 困惑度 7.67 是好事还是坏事？和准确率什么关系？
+6. 为什么验证集 loss 比训练集高？模型在作弊吗？
+7. 学习率先升后降，为什么不一开始就用最大的？
+8. 热图右上角为什么是黑的？
+9. 输出层为什么没有 bias？
+10. 25 秒能训完，为什么论文要训 12 小时？</code></pre>
+
+<p>
+第 10 个问题看起来最不重要，其实最重要。它逼你区分「模型能学到什么」和「训练能让模型学到多少」，
+而这两件事的区别，是初学者和有经验的人最明显的分水岭。
+</p>
+
+<div class="endmatter">
+
+<div class="takeaway">
+  <h3>本章要点</h3>
+  <ol>
+    <li>这个项目是<b>纯解码器</b>的字符级语言模型，10 万参数，任务是根据前文预测下一个字符。</li>
+    <li>10 万参数可以手算：嵌入 6,144 + 两层 93,776 + 输出归一化 128，输出层与嵌入共享权重。</li>
+    <li><code>d_ff=232</code> 是反解出来的，不是经验值——它是「凑到 10 万」的产物。</li>
+    <li>生成结果「像而不对」，说明模型学到了语法但没学到语义。这正是 Transformer 要解决的问题。</li>
+    <li>验证 loss 先降后平而训练 loss 继续降，是过拟合，不是故障。</li>
+  </ol>
+</div>
+
+<div class="exercises">
+  <h3>习题</h3>
+  <ol>
+    <li>把 <code>src/config.py</code> 里的 <code>d_ff</code> 改成 256，重跑训练，记录参数量和新旧 loss。
+        <span class="hint">预期 103,536。注意 <code>results/train_log.csv</code> 会被覆盖，先备份。</span></li>
+    <li>不改代码，心算：如果把 <code>n_layers</code> 从 2 改成 3，总参数量是多少？</li>
+    <li>生成脚本里 <code>--temperature</code> 分别取 0.3、0.8、1.5，各生成一次。描述三者的差别，
+        并解释「温度」在做什么（提示：它作用在 softmax 之前）。</li>
+    <li>把 <code>--top-k</code> 设为 1，观察输出。这时的生成策略叫什么？它有什么致命缺陷？</li>
+    <li>看 <code>results/attention_layer_avg.png</code>，找出「对角线特别亮」的那一层。
+        想一想：对角线亮意味着当前位置最关注自己，这说明什么？</li>
+  </ol>
+</div>
+
+<button class="markread" id="markread">○ 标记本章已读</button>
+
+<div class="chapnav" id="chapnav"></div>
+
+</div>
+
+</main>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
