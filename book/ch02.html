@@ -161,6 +161,20 @@ q 代表「我现在想找一个函数名」，那么内积大就表示「我现
 </tbody>
 </table>
 
+<div class="callout tip">
+  <span class="label">补充</span>
+  <p>
+  表里好几个词带一个点（<code>.shape</code>、<code>.reshape</code>、<code>.sum</code>）。这个点是 Python 的
+  <b>属性访问</b>语法，读作「取某个对象的某个东西」——<code>x.shape</code> 就是「把 x 的形状取出来」。
+  </p>
+  <p>
+  靠有没有括号来区分两种用法：<b>不带括号的是属性</b>，直接读，拿到一个值（<code>x.shape</code>）；
+  <b>带括号的是方法</b>，要调用一次才干活（<code>x.reshape(3, 4)</code>）。
+  而 <code>np.array(...)</code> 前面没有对象、只有库名，所以那个点连接的是「库」和「库里的函数」，
+  和 <code>x.shape</code> 里的点不是一回事。
+  </p>
+</div>
+
 <div class="callout warn">
   <span class="label">陷阱</span>
   <p><code>axis</code> 的方向是最容易搞混的。<b><code>axis=0</code> 是「沿着行往下走」，结果是消掉行维度；<code>axis=-1</code> 是「沿着最后一维走」。</b>
