@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>附录 B · numpy 够用指南 | 读懂 Transformer</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="readbar"></div>
+
+<div class="layout">
+<nav class="toc" id="toc">
+  <div class="toc-brand"><a href="index.html">读懂 Transformer</a></div>
+  <div class="toc-sub">2026 · 第一版</div>
+</nav>
+<main>
+
+<header class="chap-head">
+  <div class="chap-no">Appendix B</div>
+  <h1>numpy 够用指南</h1>
+  <p class="chap-sub">不追求完整，只覆盖读懂这个项目需要的那部分</p>
+  <div class="chap-meta">
+    <span>约 3 小时</span>
+    <span>会 Python 就能读</span>
+    <span>第 2 章卡住时翻这里</span>
+  </div>
+</header>
+
+<p class="lead">
+这份材料的假设很明确：<b>你会写 Python 的循环和函数，但从没用过 numpy</b>。
+所以它不解释「什么是变量」，只解释 numpy 和 list 的思维方式差在哪。
+每一节都是同一个结构：先说你会在哪里卡住，再给能直接跑的代码，最后说清那个词到底什么意思。
+</p>
+
+<h2>B.1 先说清楚 numpy 是什么</h2>
+
+<p>
+numpy 是 Python 的一个第三方库，干的事只有一件：<b>把一大块数字当成一个整体来运算</b>。
+</p>
+
+<p>对比一下同一个操作：</p>
+
+<pre><code><span class="c"># 用 Python 自带的 list</span>
+a = [<span class="n">1</span>, <span class="n">2</span>, <span class="n">3</span>, <span class="n">4</span>]
+b = [x * <span class="n">2</span> <span class="k">for</span> x <span class="k">in</span> a]        <span class="c"># 必须写循环</span>
+
+<span class="c"># 用 numpy</span>
+<span class="k">import</span> numpy <span class="k">as</span> np
+a = np.array([<span class="n">1</span>, <span class="n">2</span>, <span class="n">3</span>, <span class="n">4</span>])
+b = a * <span class="n">2</span>                         <span class="c"># 直接乘，不需要循环</span></code></pre>
+
+<p>这个差别不只是「少写几个字」，它带来三件事：</p>
+
+<table>
+<thead><tr><th></th><th>Python list</th><th>numpy array</th></tr></thead>
+<tbody>
+<tr><td>整体运算</td><td>要写循环或推导式</td><td><b>直接写 <code>a * 2</code></b></td></tr>
+<tr><td>形状</td><td>没有「形状」的概念，只有长度</td><td>有 shape，可以是二维、三维</td></tr>
+<tr><td>速度</td><td>慢，每个元素都要 Python 解释器过一遍</td><td>快几十倍，底层是 C 循环</td></tr>
+</tbody>
+</table>
+
+<div class="callout key">
+  <span class="label">要点</span>
+  <p>numpy 的核心思维是：<b>把整块数据当成一个东西来操作，而不是一个元素一个元素地处理。</b>
+  习惯了这个思维，代码会短很多，也快很多。</p>
+</div>
+
+<h2>B.2 数组的三件套：shape、ndim、dtype</h2>
+
+<p>拿到任何一个数组，先看这三个属性，基本就知道它是什么。</p>
+
+<pre><code>a = np.array([[<span class="n">1</span>, <span class="n">2</span>, <span class="n">3</span>],
+              [<span class="n">4</span>, <span class="n">5</span>, <span class="n">6</span>]])
+
+<span class="k">print</span>(a.shape)    <span class="c"># (2, 3)   2 行 3 列</span>
+<span class="k">print</span>(a.ndim)     <span class="c"># 2        两维</span>
+<span class="k">print</span>(a.dtype)    <span class="c"># int64    每个元素是 64 位整数</span></code></pre>
+
+<table>
+<thead><tr><th>属性</th><th>英文含义</th><th>回答什么问题</th></tr></thead>
+<tbody>
+<tr><td><code>shape</code></td><td>形状</td><td>每一维有多长？</td></tr>
+<tr><td><code>ndim</code></td><td>number of dimensions，维数</td><td>一共有几维？<b>它永远等于 <code>len(shape)</code></b></td></tr>
+<tr><td><code>dtype</code></td><td>data type，数据类型</td><td>每个元素是什么类型？</td></tr>
+</tbody>
+</table>
+
+<div class="callout warn">
+  <span class="label">陷阱</span>
+  <p><b><code>shape</code> 和 <code>ndim</code> 是同一件事的两种说法。</b>
+  <code>(2, 3)</code> 有两个数字，所以 ndim = 2。
+  <code>(64,)</code> 只有一个数字，所以 ndim = 1——注意那个逗号，<b>一维数组的 shape 也要写成元组，所以必须带逗号</b>。
+  写成 <code>(64)</code> 会被 Python 当成整数 64，不是元组。</p>
+</div>
+
+<h2>B.3 怎么造出一个数组</h2>
+
+<p>项目里 90% 的情况只会用到这五个：</p>
+
+<pre><code>np.array([<span class="n">1</span>, <span class="n">2</span>, <span class="n">3</span>])          <span class="c"># 从 Python 列表转换</span>
+np.zeros((<span class="n">2</span>, <span class="n">3</span>))                <span class="c"># 全 0，形状 (2,3)</span>
+np.ones((<span class="n">3</span>,))                    <span class="c"># 全 1，形状 (3,)</span>
+np.arange(<span class="n">12</span>)                   <span class="c"># 0..11 的整数，等价于 range(12)</span>
+np.random.randn(<span class="n">2</span>, <span class="n">3</span>)            <span class="c"># 标准正态分布的随机数，形状 (2,3)</span></code></pre>
+
+<p>
+注意 <code>np.zeros</code> 接收的是<b>一个元组</b> <code>(2, 3)</code>，不是两个参数。
+写 <code>np.zeros(2, 3)</code> 会报错。这一点和 <code>np.random.randn(2, 3)</code> 不一样，后者是两个独立参数。
+numpy 里这种不一致很多，记住常用的几个就行，不用纠结。
+</p>
+
+<div class="callout tip">
+  <span class="label">动手</span>
+  <p>做实验时最常用 <code>np.random.randn</code>——它造出来的数均值 0、方差 1，
+  正好符合神经网络初始化时的假设。第 6 章推 √d<sub>k</sub> 时用的就是它。</p>
+</div>
+
+<h2>B.4 怎么从数组里取出东西</h2>
+
+<p>一维数组和 Python list 几乎一样：</p>
+
+<pre><code>a = np.array([<span class="n">10</span>, <span class="n">20</span>, <span class="n">30</span>, <span class="n">40</span>, <span class="n">50</span>])
+a[<span class="n">0</span>]      <span class="c"># 10      从 0 开始数</span>
+a[-<span class="n">1</span>]     <span class="c"># 50      负数从后往前数</span>
+a[<span class="n">1</span>:<span class="n">3</span>]    <span class="c"># [20 30] 左闭右开</span>
+a[::<span class="n">2</span>]    <span class="c"># [10 30 50] 每隔一个取一个</span></code></pre>
+
+<p>二维数组多了一个新写法：<b>用逗号分隔，逗号前后各管一根轴</b>。</p>
+
+<pre><code>m = np.array([[<span class="n">1</span>, <span class="n">2</span>, <span class="n">3</span>],
+              [<span class="n">4</span>, <span class="n">5</span>, <span class="n">6</span>]])
+
+m[<span class="n">0</span>, <span class="n">1</span>]      <span class="c"># 2        第 0 行第 1 列</span>
+m[<span class="n">0</span>]         <span class="c"># [1 2 3]  只写一个，取整行</span>
+m[:, <span class="n">0</span>]      <span class="c"># [1 4]    冒号 = 这一维全要，所以是第 0 列</span>
+m[<span class="n">1</span>, :]      <span class="c"># [4 5 6]  第 1 行全部</span>
+m[:, <span class="n">1</span>:<span class="n">3</span>]   <span class="c"># 所有行的第 1、2 列</span></code></pre>
+
+<div class="callout key">
+  <span class="label">要点</span>
+  <p>那个单独一个冒号 <code>:</code> 的意思是<b>「这一维我不挑，全要」</b>。
+  <code>m[:, 0]</code> 读作「所有行，第 0 列」。</p>
+  <p>记住这个，第 7 章拆多头时看到的 <code>q[:, :, 0, :]</code> 就不吓人了——
+  四个逗号分隔的位置，分别对应四根轴。</p>
+</div>
+
+<h2>B.5 reshape：同一份数据，换个切法</h2>
+
+<p>
+这是最容易被误解的一个函数。<b>它不改变任何数据，只改变「怎么解读这段内存」。</b>
+</p>
+
+<pre><code>a = np.arange(<span class="n">12</span>)        <span class="c"># [0 1 2 3 4 5 6 7 8 9 10 11]  共 12 个数</span>
+
+a.reshape(<span class="n">3</span>, <span class="n">4</span>)          <span class="c"># 切成 3 段，每段 4 个 → 3 行 4 列</span>
+<span class="c"># [[ 0  1  2  3]</span>
+<span class="c">#  [ 4  5  6  7]</span>
+<span class="c">#  [ 8  9 10 11]]</span>
+
+a.reshape(<span class="n">4</span>, <span class="n">3</span>)          <span class="c"># 切成 4 段，每段 3 个 → 4 行 3 列</span>
+<span class="c"># [[ 0  1  2]</span>
+<span class="c">#  [ 3  4  5]</span>
+<span class="c">#  [ 6  7  8]</span>
+<span class="c">#  [ 9 10 11]]</span>
+
+a.reshape(<span class="n">2</span>, <span class="n">6</span>)          <span class="c"># 2 行 6 列</span></code></pre>
+
+<p><b>同一份数据，三种形状，是三个不同的数组。</b>数据一个字没动，只是切法变了。</p>
+
+<p>有一个偷懒的写法：某一维写 <code>-1</code>，numpy 自己算。</p>
+
+<pre><code>a.reshape(<span class="n">3</span>, -<span class="n">1</span>)    <span class="c"># (3, 4)   我知道要 3 行，列数你算</span>
+a.reshape(-<span class="n">1</span>, <span class="n">4</span>)    <span class="c"># (3, 4)   我知道要 4 列，行数你算</span></code></pre>
+
+<p>
+第 7 章拆多头时那句 <code>.view(B, T, -1)</code> 就是这个用法：
+「我要 B 和 T 不变，剩下的你自己算」。
+</p>
+
+<h2>B.6 transpose：交换两根轴</h2>
+
+<p><code>transpose</code> 的意思是<b>转置</b>，也就是把行和列对调。</p>
+
+<pre><code>m = np.array([[<span class="n">1</span>, <span class="n">2</span>, <span class="n">3</span>],
+              [<span class="n">4</span>, <span class="n">5</span>, <span class="n">6</span>]])     <span class="c"># 形状 (2, 3)</span>
+
+m.T                            <span class="c"># 形状 (3, 2)</span>
+<span class="c"># [[1 4]</span>
+<span class="c">#  [2 5]</span>
+<span class="c">#  [3 6]]</span>
+
+m.transpose(<span class="n">1</span>, <span class="n">0</span>)             <span class="c"># 和 m.T 一样，显式写出轴的顺序</span></code></pre>
+
+<p>
+<code>.T</code> 是二维的简写。三维以上要用 <code>transpose</code> 并写出新顺序，
+比如 <code>x.transpose(1, 0, 2)</code> 表示「新的第 0 轴是原来的第 1 轴，新的第 1 轴是原来的第 0 轴，第 2 轴不动」。
+</p>
+
+<div class="callout warn">
+  <span class="label">陷阱</span>
+  <p><code>transpose</code> <b>不搬动内存里的数据</b>，只是改了一组「步长」记录。
+  所以转置之后不能直接 <code>view</code>，必须加 <code>.contiguous()</code> 先真正复制一遍。
+  这是第 7 章那个必踩的坑。</p>
+</div>
+
+<h2>B.7 广播：numpy 最聪明也最容易错的地方</h2>
+
+<p>先看它能干什么：</p>
+
+<pre><code>a = np.array([[<span class="n">1</span>, <span class="n">2</span>, <span class="n">3</span>],
+              [<span class="n">4</span>, <span class="n">5</span>, <span class="n">6</span>]])     <span class="c"># (2, 3)</span>
+b = np.array([<span class="n">10</span>, <span class="n">20</span>, <span class="n">30</span>])            <span class="c"># (3,)</span>
+
+a + b
+<span class="c"># [[11 22 33]</span>
+<span class="c">#  [14 25 36]]</span></code></pre>
+
+<p>
+形状不一样，居然能加。<b>numpy 把 <code>(3,)</code> 自动拉成了 <code>(2,3)</code></b>——
+相当于给每一行都加了一遍 <code>[10, 20, 30]</code>。
+</p>
+
+<h3>规则只有一条</h3>
+
+<div class="callout key">
+  <span class="label">要点</span>
+  <p><b>从右往左，逐个比较两个形状：要么相等，要么其中一个是 1。</b>
+  是 1 的那一维会被「拉伸」成对方的长度。</p>
+</div>
+
+<p>三个例子，把规则走一遍：</p>
+
+<table>
+<thead><tr><th>形状 A</th><th>形状 B</th><th>能否广播</th><th>原因</th></tr></thead>
+<tbody>
+<tr><td>(2, 3)</td><td>(3,)</td><td>能 → (2,3)</td><td>右对齐后 3 vs 3，前面缺的当 1</td></tr>
+<tr><td>(2, 3)</td><td>(2, 1)</td><td>能 → (2,3)</td><td>右对齐 3 vs 1，1 拉伸成 3</td></tr>
+<tr><td>(2, 3)</td><td>(2,)</td><td><b>不能</b></td><td>右对齐 3 vs 2，既不等也没 1</td></tr>
+</tbody>
+</table>
+
+<p>第三个就是初学者最常遇到的报错。为什么会这样？因为 <code>(2,)</code> 会被当成 <code>(1,2)</code>，
+然后 3 和 2 对不上。</p>
+
+<h3>所以需要 keepdims</h3>
+
+<pre><code>x = np.random.randn(<span class="n">2</span>, <span class="n">5</span>)
+
+m1 = x.max(axis=-<span class="n">1</span>)                  <span class="c"># (2,)     ← 5 没了</span>
+m2 = x.max(axis=-<span class="n">1</span>, keepdims=<span class="k">True</span>)  <span class="c"># (2, 1)   ← 5 变成 1</span>
+
+x - m1     <span class="c"># ✗ 报错：(2,5) 和 (2,) 不能广播</span>
+x - m2     <span class="c"># ✓ 正确：(2,5) - (2,1)</span></code></pre>
+
+<p>
+<code>keepdims=True</code> 的唯一作用，就是把被消掉的那一维<b>留成 1</b>，让广播有东西可以对齐。
+softmax 忘了写它，结果会静默算错，不报错——这是最难查的一类 bug。
+</p>
+
+<h2>B.8 聚合：sum、mean、max 和那个 axis</h2>
+
+<p>这几个函数都要问「在哪一维上做」，所以都带 <code>axis</code> 参数。</p>
+
+<pre><code>m = np.array([[<span class="n">1</span>, <span class="n">2</span>, <span class="n">3</span>],
+              [<span class="n">4</span>, <span class="n">5</span>, <span class="n">6</span>]])     <span class="c"># (2, 3)</span>
+
+m.sum()                 <span class="c"># 21        不带 axis：全部加起来，得到一个数</span>
+m.sum(axis=<span class="n">0</span>)           <span class="c"># [5 7 9]   形状 (3,)   每列求和</span>
+m.sum(axis=<span class="n">1</span>)           <span class="c"># [ 6 15]   形状 (2,)   每行求和</span>
+m.sum(axis=<span class="n">1</span>, keepdims=<span class="k">True</span>)   <span class="c"># [[ 6] [15]]  形状 (2,1)</span></code></pre>
+
+<div class="callout key">
+  <span class="label">要点</span>
+  <p><b>axis 是「第几根轴」，从 0 数起。哪个轴被操作了，结果里就没有它。</b></p>
+  <p>验证方法只有一条：<b>看结果的形状</b>。<code>(2,3)</code> 做 <code>axis=0</code> 得 <code>(3,)</code>，
+  说明第 0 维（长度 2）消失了。<code>axis=1</code> 得 <code>(2,)</code>，说明第 1 维（长度 3）消失了。</p>
+</div>
+
+<p>
+<code>axis=-1</code> 是「最后一维」的意思，负数从后往前数。
+写 <code>-1</code> 的好处是：不管几维数组，最后一维永远是最细的那个方向——对语言模型来说，就是词表。
+</p>
+
+<h2>B.9 矩阵乘法：<code>@</code> 和 <code>*</code> 完全不是一回事</h2>
+
+<pre><code>A = np.array([[<span class="n">1</span>, <span class="n">2</span>],
+              [<span class="n">3</span>, <span class="n">4</span>]])
+B = np.array([[<span class="n">5</span>, <span class="n">6</span>],
+              [<span class="n">7</span>, <span class="n">8</span>]])
+
+A * B          <span class="c"># 逐元素相乘</span>
+<span class="c"># [[ 5 12]</span>
+<span class="c">#  [21 32]]</span>
+
+A @ B          <span class="c"># 矩阵乘法（线性代数里那个）</span>
+<span class="c"># [[19 22]</span>
+<span class="c">#  [43 50]]</span></code></pre>
+
+<p>
+<b><code>*</code> 是逐元素，<code>@</code> 才是矩阵乘。</b>这个区别在数学书里不存在（都写 AB），
+但在代码里是两个完全不同的运算。搞错了不会报错，只会得到错误的结果。
+</p>
+
+<p><code>@</code> 会检查形状：左边列数必须等于右边行数。</p>
+
+<pre><code>(<span class="n">3</span>, <span class="n">4</span>) @ (<span class="n">4</span>, <span class="n">5</span>)  →  (<span class="n">3</span>, <span class="n">5</span>)      <span class="c">✓ 4 == 4</span>
+(<span class="n">3</span>, <span class="n">4</span>) @ (<span class="n">3</span>, <span class="n">4</span>)  →  ✗ 报错，4 ≠ 3</span></code></pre>
+
+<p>批量矩阵乘也支持，前导维度会自动广播——注意力靠这个性质一次处理整个 batch：</p>
+
+<pre><code>q = np.random.randn(<span class="n">2</span>, <span class="n">5</span>, <span class="n">8</span>)    <span class="c"># (B=2, T=5, d_k=8)</span>
+k = np.random.randn(<span class="n">2</span>, <span class="n">5</span>, <span class="n">8</span>)
+
+scores = q @ k.transpose(<span class="n">0</span>, <span class="n">2</span>, <span class="n">1</span>)   <span class="c"># (2,5,8) @ (2,8,5) → (2,5,5)</span></code></pre>
+
+<h2>B.10 布尔索引：注意力里的掩码靠它</h2>
+
+<p>比较运算会得到一个<b>全由 True/False 组成的数组</b>，形状不变：</p>
+
+<pre><code>a = np.array([-<span class="n">2</span>, <span class="n">1</span>, -<span class="n">5</span>, <span class="n">3</span>])
+a &gt; <span class="n">0</span>            <span class="c"># [False  True False  True]</span>
+a[a &gt; <span class="n">0</span>]         <span class="c"># [1 3]        用它当索引，只留下 True 的位置</span></code></pre>
+
+<p>还有一个常用函数 <code>np.where</code>，相当于向量版的 if-else：</p>
+
+<pre><code>np.where(a &gt; <span class="n">0</span>, a, <span class="n">0</span>)   <span class="c"># 大于 0 保留，否则填 0 → [0 1 0 3]</span></code></pre>
+
+<p>注意力里的掩码就是这个套路：</p>
+
+<pre><code>mask = np.tril(np.ones((<span class="n">4</span>, <span class="n">4</span>)))   <span class="c"># 下三角为 1，上三角为 0</span>
+scores = np.where(mask, scores, -np.inf)  <span class="c"># 未来位置设为负无穷</span></code></pre>
+
+<p>第 9 章会讲为什么要设成 <code>-inf</code> 而不是 0。</p>
+
+<h2>B.11 速查表</h2>
+
+<table>
+<caption>只用记住这些，剩下的用到再查</caption>
+<thead><tr><th>写法</th><th>作用</th><th>例子</th></tr></thead>
+<tbody>
+<tr><td><code>np.array(x)</code></td><td>列表转数组</td><td><code>np.array([1,2,3])</code></td></tr>
+<tr><td><code>np.zeros((2,3))</code></td><td>全 0</td><td>注意是元组</td></tr>
+<tr><td><code>np.arange(n)</code></td><td>0 到 n-1</td><td>等价 <code>range(n)</code></td></tr>
+<tr><td><code>np.random.randn(...)</code></td><td>正态随机数</td><td>均值 0 方差 1</td></tr>
+<tr><td><code>a.shape</code></td><td>每维多长</td><td><code>(2, 3)</code></td></tr>
+<tr><td><code>a.ndim</code></td><td>几维</td><td><code>len(a.shape)</code></td></tr>
+<tr><td><code>a[i, j]</code></td><td>取元素</td><td>逗号分轴</td></tr>
+<tr><td><code>a[:, 0]</code></td><td>取一列</td><td>冒号 = 全要</td></tr>
+<tr><td><code>a.reshape(3, -1)</code></td><td>变形</td><td>-1 自动算</td></tr>
+<tr><td><code>a.T</code></td><td>转置</td><td>行列对调</td></tr>
+<tr><td><code>a.sum(axis=0)</code></td><td>沿轴聚合</td><td>消掉第 0 维</td></tr>
+<tr><td><code>a @ b</code></td><td>矩阵乘</td><td>不是 <code>a * b</code></td></tr>
+<tr><td><code>a &gt; 0</code></td><td>布尔数组</td><td>可当索引</td></tr>
+</tbody>
+</table>
+
+<h2>B.12 练习</h2>
+
+<p>五道题，做完就能应付本书前六章的所有 numpy 代码。</p>
+
+<pre><code><span class="c"># 1. 造一个 (4, 6) 的全 1 数组，把第 2 行改成 0</span>
+
+<span class="c"># 2. 一个 (3, 4) 的数组，求每行的最大值，结果保持 (3, 1) 形状</span>
+
+<span class="c"># 3. 把 (12,) 变形成 (3, 4)，再变形成 (4, 3)，确认数据顺序不变</span>
+
+<span class="c"># 4. (5, 3) 和 (3,) 相加，预测结果形状再验证</span>
+
+<span class="c"># 5. (5, 3) 和 (5,) 相加，会发生什么？为什么？</span></code></pre>
+
+<div class="callout key">
+  <span class="label">要点</span>
+  <p>第 5 题一定报错。看懂报错信息里那两个形状，比做对前四题更有价值——
+  <b>后面所有维度 bug，你都是靠这个本事查出来的。</b></p>
+</div>
+
+<div class="endmatter">
+
+<div class="takeaway">
+  <h3>这份材料想让你记住的</h3>
+  <ol>
+    <li><b>axis 就是「轴」，从 0 数起</b>；哪个轴被操作，结果里就没有它。</li>
+    <li><b>shape 是「数据的规格」</b>，同一份数据换 shape 就是另一个数组。</li>
+    <li><b>广播规则：右对齐，相等或为 1。</b>不满足就报错，没有例外。</li>
+    <li><b><code>@</code> 是矩阵乘，<code>*</code> 是逐元素。</b>弄混不报错，但结果是错的。</li>
+    <li>所有维度问题，解法都是同一句话：<b>打印 shape。</b></li>
+  </ol>
+</div>
+
+<button class="markread" id="markread">○ 标记本章已读</button>
+
+<div class="chapnav" id="chapnav"></div>
+
+</div>
+
+</main>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
