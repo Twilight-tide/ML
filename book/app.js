@@ -13,7 +13,8 @@ const BOOK = [
   { file: "ch09.html",     no: "9", title: "拼装与训练",         group: "第三部 · Transformer" },
   { file: "ch10.html",     no: "10", title: "精读论文",          group: "第四部 · 验证" },
   { file: "appendix.html", no: "A", title: "附录：速查表",       group: "第四部 · 验证" },
-  { file: "numpy.html",    no: "B", title: "numpy 够用指南",     group: "第四部 · 验证" }
+  { file: "numpy.html",    no: "B", title: "numpy 够用指南",     group: "第四部 · 验证" },
+  { file: "derivation.html", no: "C", title: "线性回归的梯度",   group: "第四部 · 验证" }
 ];
 
 const READ_KEY = "ml-book-read-v1";

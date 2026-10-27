@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>附录 C · 从线性回归到梯度公式 | 读懂 Transformer</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="readbar"></div>
+
+<div class="layout">
+<nav class="toc" id="toc">
+  <div class="toc-brand"><a href="index.html">读懂 Transformer</a></div>
+  <div class="toc-sub">2026 · 第一版</div>
+</nav>
+<main>
+
+<header class="chap-head">
+  <div class="chap-no">Appendix C</div>
+  <h1>从线性回归到梯度公式</h1>
+  <p class="chap-sub">把 ∇ = (2/n) Xᵀ(Xw − y) 一步一步推出来</p>
+  <div class="chap-meta">
+    <span>约 2 小时</span>
+    <span>只需会求导</span>
+    <span>配合 2.6 节阅读</span>
+  </div>
+</header>
+
+<p class="lead">
+这个公式在整个项目里只出现一次，却是理解「训练」的起点。
+它看起来像变魔术：一堆矩阵忽然变成了一个梯度。这一节把它拆开，
+从「线性回归是什么」开始，用两种完全不同的方法各推一遍，最后给出几何解释。
+两种方法都推完，你就不需要「记住」这个公式了。
+</p>
+
+<div class="callout key">
+  <span class="label">这一节需要的前置</span>
+  <p>
+  只有三样：<b>平方、求和、一元求导</b>。
+  矩阵求导的公式我会现推，不假设你背过。如果你会链式法则，就足够了。
+  </p>
+</div>
+
+<h2>C.1 线性回归要解决什么问题</h2>
+
+<p>手上有 <i class="v">n</i> 个样本。每个样本有两个东西：</p>
+
+<ul>
+<li>一组特征 <i class="v">x</i><sub>i</sub> = (x<sub>i1</sub>, x<sub>i2</sub>, …, x<sub>id</sub>)，<i class="v">d</i> 个数</li>
+<li>一个答案 <i class="v">y</i><sub>i</sub>，一个数</li>
+</ul>
+
+<p>我们想找一个线性函数，把特征映射成答案：</p>
+
+<div class="eq">
+ŷ<sub>i</sub> = w<sub>1</sub>x<sub>i1</sub> + w<sub>2</sub>x<sub>i2</sub> + … + w<sub>d</sub>x<sub>id</sub>
+<span class="where">ŷ 读作「y hat」，表示模型的预测值</span>
+</div>
+
+<p>
+一组权重 <i class="v">w</i> 就定义了一个模型。问题变成：<b>哪一组 <i class="v">w</i> 最好？</b>
+</p>
+
+<p>「最好」需要一个标准。最自然的标准是：预测值和真实值的差距越小越好。</p>
+
+<div class="eq">
+<i class="v">e</i><sub>i</sub> = ŷ<sub>i</sub> − y<sub>i</sub> = <i class="v">w</i> · <i class="v">x</i><sub>i</sub> − y<sub>i</sub>
+<span class="where">第 i 个样本的残差（residual）</span>
+</div>
+
+<h2>C.2 为什么是「平方和」</h2>
+
+<p>直接把所有残差加起来行不行？不行，因为正负会抵消。</p>
+
+<p>
+比如两个样本，一个误差 +10，一个误差 −10，加起来是 0——看起来完美，实际上错得离谱。
+</p>
+
+<p>所以要消除符号。两种常见做法：取绝对值，或者取平方。选平方有三个理由：</p>
+
+<ol>
+<li><b>可导。</b>绝对值在 0 点不可导，平方处处可导。我们要对它求梯度，这一点是硬要求。</li>
+<li><b>惩罚大误差。</b>误差 2 的样本，平方后贡献 4；误差 10 的，贡献 100。模型会优先修大错。</li>
+<li><b>有概率解释。</b>如果假设噪声服从正态分布，最大化似然等价于最小化平方和。</li>
+</ol>
+
+<p>于是损失函数定义为「平均平方误差」：</p>
+
+<div class="eq">
+L(<i class="v">w</i>) = (1/n) Σ<sub>i=1</sub><sup>n</sup> ( <i class="v">w</i> · <i class="v">x</i><sub>i</sub> − y<sub>i</sub> )²
+<span class="where">除以 n 是为了取平均，让 loss 和数据量无关</span>
+</div>
+
+<h2>C.3 把所有样本写成矩阵</h2>
+
+<p>
+上面那个式子对每个样本写一遍，太啰嗦。把 <i class="v">n</i> 个样本堆成矩阵，一次算完。
+</p>
+
+<pre><code>       特征 1   特征 2   ...  特征 d
+样本1  [ x_11    x_12    ...  x_1d ]        y_1
+样本2  [ x_21    x_22    ...  x_2d ]        y_2
+ ...   [  ...     ...    ...   ... ]        ...
+样本n  [ x_n1    x_n2    ...  x_nd ]        y_n
+
+        X 形状 (n, d)                      y 形状 (n,)</code></pre>
+
+<p>那么所有预测值可以一次算出来：</p>
+
+<div class="eq">
+ŷ = <i class="v">Xw</i>
+<span class="where">(n,d) 乘 (d,) 得到 (n,)，每一行是一个样本的预测</span>
+</div>
+
+<p>残差向量就是：</p>
+
+<div class="eq">
+<i class="v">r</i> = <i class="v">Xw</i> − <i class="v">y</i>
+<span class="where">形状 (n,)，第 i 个分量是第 i 个样本的误差</span>
+</div>
+
+<p>而「平方和」在矩阵语言里是向量的内积：</p>
+
+<div class="eq">
+‖<i class="v">r</i>‖² = <i class="v">r</i><sup>T</sup><i class="v">r</i> = Σ<sub>i</sub> r<sub>i</sub>²
+<span class="where">一个向量的平方和，等于它和自己的内积</span>
+</div>
+
+<p>所以损失函数写成：</p>
+
+<div class="eq">
+L(<i class="v">w</i>) = (1/n) ( <i class="v">Xw</i> − <i class="v">y</i> )<sup>T</sup>( <i class="v">Xw</i> − <i class="v">y</i> )
+<span class="where">式(C-1)</span>
+</div>
+
+<div class="callout key">
+  <span class="label">要点</span>
+  <p>到这一步，问题已经完全清楚了：<b>L 是一个关于 <i class="v">w</i> 的函数，我们要找让它最小的 <i class="v">w</i>。</b>
+  梯度 ∇L 是一个和 <i class="v">w</i> 同维的向量，第 <i class="v">k</i> 个分量是 ∂L/∂w<sub>k</sub>。
+  算出这个向量，就是本节的全部任务。</p>
+</div>
+
+<h2>C.4 方法一：逐个分量推（不需要任何矩阵公式）</h2>
+
+<p>
+这是最扎实的路径。它慢，但每一步你都能自己验证。如果你只有高数基础，走这条。
+</p>
+
+<h3>第 1 步：把 L 写成双重求和</h3>
+
+<p>把矩阵乘法展开成标量：</p>
+
+<div class="eq">
+ŷ<sub>i</sub> = Σ<sub>j=1</sub><sup>d</sup> X<sub>ij</sub> w<sub>j</sub>
+<span class="where">第 i 行和 w 做内积</span>
+</div>
+
+<p>所以损失是：</p>
+
+<div class="eq">
+L = (1/n) Σ<sub>i=1</sub><sup>n</sup> ( Σ<sub>j=1</sub><sup>d</sup> X<sub>ij</sub> w<sub>j</sub> − y<sub>i</sub> )²
+</div>
+
+<p>为了少写字，记括号里那坨为 <i class="v">r</i><sub>i</sub>：</p>
+
+<div class="eq">
+r<sub>i</sub> = Σ<sub>j</sub> X<sub>ij</sub> w<sub>j</sub> − y<sub>i</sub>　　⟹　　L = (1/n) Σ<sub>i</sub> r<sub>i</sub>²
+</div>
+
+<h3>第 2 步：对某一个 w<sub>k</sub> 求偏导</h3>
+
+<p><b>关键认知：<i class="v">w</i> 有 d 个分量，我们一次只对其中一个求导。</b>其他的当常数。</p>
+
+<div class="eq">
+∂L/∂w<sub>k</sub> = (1/n) Σ<sub>i</sub> ∂(r<sub>i</sub>²)/∂w<sub>k</sub>
+</div>
+
+<p>对每一项用链式法则：外层是平方，内层是 r<sub>i</sub>。</p>
+
+<div class="eq">
+∂(r<sub>i</sub>²)/∂w<sub>k</sub> = 2 r<sub>i</sub> · ∂r<sub>i</sub>/∂w<sub>k</sub>
+</div>
+
+<h3>第 3 步：算 ∂r<sub>i</sub>/∂w<sub>k</sub></h3>
+
+<p>展开 r<sub>i</sub>：</p>
+
+<div class="eq">
+r<sub>i</sub> = X<sub>i1</sub>w<sub>1</sub> + X<sub>i2</sub>w<sub>2</sub> + … + X<sub>ik</sub>w<sub>k</sub> + … + X<sub>id</sub>w<sub>d</sub> − y<sub>i</sub>
+</div>
+
+<p>
+对 w<sub>k</sub> 求偏导时，除了 <code>X<sub>ik</sub>w<sub>k</sub></code> 这一项，
+其他项都不含 w<sub>k</sub>，导数为 0。而 <code>X<sub>ik</sub>w<sub>k</sub></code> 对 w<sub>k</sub> 的导数是 X<sub>ik</sub>。
+</p>
+
+<div class="eq">
+∂r<sub>i</sub>/∂w<sub>k</sub> = X<sub>ik</sub>
+<span class="where">只有第 k 个特征那一项活了下来</span>
+</div>
+
+<h3>第 4 步：代回去</h3>
+
+<div class="eq">
+∂L/∂w<sub>k</sub> = (1/n) Σ<sub>i</sub> 2 r<sub>i</sub> X<sub>ik</sub>
+= (2/n) Σ<sub>i</sub> X<sub>ik</sub> ( <i class="v">Xw</i> − <i class="v">y</i> )<sub>i</sub>
+</div>
+
+<p>注意最后一步把 r<sub>i</sub> 写回去了，因为 r<sub>i</sub> = (Xw − y)<sub>i</sub>。</p>
+
+<h3>第 5 步：认出这是矩阵乘法</h3>
+
+<p>现在看这个求和：</p>
+
+<div class="eq">
+Σ<sub>i</sub> X<sub>ik</sub> ( <i class="v">Xw</i> − <i class="v">y</i> )<sub>i</sub>
+</div>
+
+<p>它是一个「固定 k，对 i 求和」的式子。回想矩阵乘法的定义：</p>
+
+<div class="eq">
+(<i class="v">X</i><sup>T</sup><i class="v">v</i>)<sub>k</sub> = Σ<sub>i</sub> (<i class="v">X</i><sup>T</sup>)<sub>ki</sub> v<sub>i</sub> = Σ<sub>i</sub> X<sub>ik</sub> v<sub>i</sub>
+<span class="where">转置之后，第 k 行第 i 列就是原来的第 i 行第 k 列</span>
+</div>
+
+<p>把 <i class="v">v</i> 换成 (Xw − y)，正好对上。所以：</p>
+
+<div class="eq">
+∂L/∂w<sub>k</sub> = (2/n) [ <i class="v">X</i><sup>T</sup>( <i class="v">Xw</i> − <i class="v">y</i> ) ]<sub>k</sub>
+</div>
+
+<h3>第 6 步：从分量回到整个向量</h3>
+
+<p>
+这个等式对每一个 k = 1, …, d 都成立。
+「向量的每个分量都相等」就意味着「向量相等」。
+</p>
+
+<div class="eq" style="font-size:18px">
+<b>∇L = (2/n) <i class="v">X</i><sup>T</sup>( <i class="v">Xw</i> − <i class="v">y</i> )</b>
+<span class="where">式(C-2)　方法一推导完毕</span>
+</div>
+
+<div class="callout tip">
+  <span class="label">动手</span>
+  <p>拿一张纸，把第 1 到第 5 步自己写一遍。中间不要看这里。
+  如果卡在「为什么只有 X<sub>ik</sub> 活下来」，就在纸上写 d=3 的展开式，用具体数字算一次。</p>
+</div>
+
+<h2>C.5 方法二：矩阵求导（更快，但要两条规则）</h2>
+
+<p>
+方法一已经把结果推出来了。方法二的意义在于：<b>以后遇到更复杂的损失函数，你不用再逐分量展开</b>。
+但那两条规则得先证明，不能直接拿来用。
+</p>
+
+<h3>第 1 步：把 L 展开成四项</h3>
+
+<p>用分配律展开（注意 <i class="v">Xw</i> 和 <i class="v">y</i> 都是列向量）：</p>
+
+<div class="eq">
+(<i class="v">Xw</i> − <i class="v">y</i>)<sup>T</sup>(<i class="v">Xw</i> − <i class="v">y</i>)
+= (<i class="v">Xw</i>)<sup>T</sup>(<i class="v">Xw</i>) − (<i class="v">Xw</i>)<sup>T</sup><i class="v">y</i> − <i class="v">y</i><sup>T</sup>(<i class="v">Xw</i>) + <i class="v">y</i><sup>T</sup><i class="v">y</i>
+</div>
+
+<p>用转置的性质 (AB)<sup>T</sup> = B<sup>T</sup>A<sup>T</sup> 化简第一项：</p>
+
+<div class="eq">
+(<i class="v">Xw</i>)<sup>T</sup>(<i class="v">Xw</i>) = <i class="v">w</i><sup>T</sup><i class="v">X</i><sup>T</sup><i class="v">Xw</i>
+</div>
+
+<h3>第 2 步：合并中间两项</h3>
+
+<p>关键观察：<i class="v">w</i><sup>T</sup><i class="v">X</i><sup>T</sup><i class="v">y</i> 是一个<b>标量</b>（1×1 的矩阵）。</p>
+
+<p>标量有一个显然但重要的性质：<b>它等于自己的转置。</b></p>
+
+<div class="eq">
+(<i class="v">w</i><sup>T</sup><i class="v">X</i><sup>T</sup><i class="v">y</i>)<sup>T</sup> = <i class="v">y</i><sup>T</sup><i class="v">Xw</i>
+</div>
+
+<p>所以中间两项相等，合并成 −2<i class="v">w</i><sup>T</sup><i class="v">X</i><sup>T</sup><i class="v">y</i>：</p>
+
+<div class="eq">
+L = (1/n) [ <i class="v">w</i><sup>T</sup><i class="v">X</i><sup>T</sup><i class="v">Xw</i> − 2<i class="v">w</i><sup>T</sup><i class="v">X</i><sup>T</sup><i class="v">y</i> + <i class="v">y</i><sup>T</sup><i class="v">y</i> ]
+<span class="where">式(C-3)</span>
+</div>
+
+<h3>第 3 步：准备两条求导规则</h3>
+
+<p>式子有三个部分，需要两条规则。先证明它们。</p>
+
+<h4>规则 A：∂(<i class="v">b</i><sup>T</sup><i class="v">w</i>)/∂<i class="v">w</i> = <i class="v">b</i></h4>
+
+<p>展开成标量：<i class="v">b</i><sup>T</sup><i class="v">w</i> = Σ<sub>i</sub> b<sub>i</sub>w<sub>i</sub>。</p>
+
+<p>对 w<sub>k</sub> 求偏导，只有 b<sub>k</sub>w<sub>k</sub> 那一项有贡献，导数是 b<sub>k</sub>。</p>
+
+<div class="eq">
+∂/∂w<sub>k</sub> (Σ<sub>i</sub> b<sub>i</sub>w<sub>i</sub>) = b<sub>k</sub>　⟹　梯度 = <i class="v">b</i>
+</div>
+
+<h4>规则 B：∂(<i class="v">w</i><sup>T</sup><i class="v">Aw</i>)/∂<i class="v">w</i> = 2<i class="v">Aw</i>（当 A 对称）</h4>
+
+<p>展开：</p>
+
+<div class="eq">
+<i class="v">w</i><sup>T</sup><i class="v">Aw</i> = Σ<sub>i</sub> Σ<sub>j</sub> w<sub>i</sub> A<sub>ij</sub> w<sub>j</sub>
+</div>
+
+<p>对 w<sub>k</sub> 求偏导。这个双重求和里，含 w<sub>k</sub> 的项有两类：</p>
+
+<ul>
+<li><b>i = k 的那些项</b>：Σ<sub>j</sub> A<sub>kj</sub>w<sub>j</sub>，对 w<sub>k</sub> 求导得 (Aw)<sub>k</sub></li>
+<li><b>j = k 的那些项</b>：Σ<sub>i</sub> w<sub>i</sub>A<sub>ik</sub>，对 w<sub>k</sub> 求导得 (A<sup>T</sup>w)<sub>k</sub></li>
+</ul>
+
+<p>（i = j = k 那一项被算了两次，但因为它对 w<sub>k</sub> 是二次的，导数正好是 2A<sub>kk</sub>w<sub>k</sub>，所以没错。）</p>
+
+<div class="eq">
+∂/∂w<sub>k</sub> = (Aw)<sub>k</sub> + (A<sup>T</sup>w)<sub>k</sub>
+</div>
+
+<p>如果 A 是对称矩阵（A<sup>T</sup> = A），两项相同：</p>
+
+<div class="eq">
+∂(<i class="v">w</i><sup>T</sup><i class="v">Aw</i>)/∂<i class="v">w</i> = 2<i class="v">Aw</i>
+</div>
+
+<div class="callout key">
+  <span class="label">要点</span>
+  <p>这里有个容易忽略的点：<b>X<sup>T</sup>X 一定是对称的</b>。<br>
+  因为 (X<sup>T</sup>X)<sup>T</sup> = X<sup>T</sup>(X<sup>T</sup>)<sup>T</sup> = X<sup>T</sup>X。<br>
+  所以规则 B 可以直接用，不用管不对称的情况。</p>
+</div>
+
+<h3>第 4 步：逐项求导</h3>
+
+<p>对照式(C-3)，令 A = X<sup>T</sup>X，b = X<sup>T</sup>y：</p>
+
+<table>
+<thead><tr><th>项</th><th>形式</th><th>导数</th></tr></thead>
+<tbody>
+<tr><td>第一项</td><td><i class="v">w</i><sup>T</sup>(<i class="v">X</i><sup>T</sup><i class="v">X</i>)<i class="v">w</i></td><td>2<i class="v">X</i><sup>T</sup><i class="v">Xw</i>（规则 B）</td></tr>
+<tr><td>第二项</td><td>−2<i class="v">w</i><sup>T</sup>(<i class="v">X</i><sup>T</sup><i class="v">y</i>)</td><td>−2<i class="v">X</i><sup>T</sup><i class="v">y</i>（规则 A）</td></tr>
+<tr><td>第三项</td><td><i class="v">y</i><sup>T</sup><i class="v">y</i></td><td>0（不含 w）</td></tr>
+</tbody>
+</table>
+
+<h3>第 5 步：合起来</h3>
+
+<div class="eq">
+∇L = (1/n) [ 2<i class="v">X</i><sup>T</sup><i class="v">Xw</i> − 2<i class="v">X</i><sup>T</sup><i class="v">y</i> ]
+= (2/n) <i class="v">X</i><sup>T</sup> ( <i class="v">Xw</i> − <i class="v">y</i> )
+</div>
+
+<p>和方法一的结果完全一致。</p>
+
+<div class="callout key">
+  <span class="label">要点</span>
+  <p>两条路，一条逐分量（慢但透明），一条矩阵求导（快但需要规则）。
+  <b>两条都走通，你才算真的会了。</b>只走一条，容易在换个场景时卡住。</p>
+</div>
+
+<h2>C.6 梯度为零意味着什么</h2>
+
+<p>令 ∇L = 0：</p>
+
+<div class="eq">
+<i class="v">X</i><sup>T</sup>( <i class="v">Xw</i> − <i class="v">y</i> ) = 0
+</div>
+
+<p>记残差 <i class="v">r</i> = <i class="v">y</i> − <i class="v">Xw</i>（注意符号反过来了），条件变成：</p>
+
+<div class="eq">
+<i class="v">X</i><sup>T</sup><i class="v">r</i> = 0
+</div>
+
+<p>把它写成每个分量的形式：</p>
+
+<div class="eq">
+(<i class="v">X</i><sup>T</sup><i class="v">r</i>)<sub>k</sub> = Σ<sub>i</sub> X<sub>ik</sub> r<sub>i</sub> = 0　（对每个 k）
+</div>
+
+<p>
+这个求和是什么？它是<b>第 k 个特征那一列，和残差向量的内积</b>。
+内积为 0，意味着正交。
+</p>
+
+<div class="callout key">
+  <span class="label">几何意义</span>
+  <p><b>最优解的残差，和 X 的每一列都垂直。</b></p>
+  <p>
+  换个说法：<i class="v">Xw</i> 能到达的所有可能，构成 X 的列空间（一个 d 维的子空间，藏在 n 维空间里）。
+  <i class="v">y</i> 一般不在这个子空间里。我们要找子空间里离 <i class="v">y</i> 最近的那个点。
+  而「最近」的几何条件正是：<b>连线（残差）垂直于这个子空间</b>。
+  </p>
+  <p>所以最小二乘的代数条件和几何直觉是同一件事。</p>
+</div>
+
+<h2>C.7 解出 w</h2>
+
+<p>从 X<sup>T</sup>(Xw − y) = 0 出发：</p>
+
+<div class="eq">
+<i class="v">X</i><sup>T</sup><i class="v">Xw</i> = <i class="v">X</i><sup>T</sup><i class="v">y</i>　　　（正规方程 normal equation）
+</div>
+
+<div class="eq">
+<i class="v">w</i> = (<i class="v">X</i><sup>T</sup><i class="v">X</i>)<sup>−1</sup> <i class="v">X</i><sup>T</sup><i class="v">y</i>
+<span class="where">前提：X<sup>T</sup>X 可逆，即 X 的列线性无关</span>
+</div>
+
+<p>这就是 2.6 节那段代码在做的事：</p>
+
+<pre><code>w_ls = np.linalg.solve(X.T @ X, X.T @ y)</code></pre>
+
+<p>
+用 <code>solve</code> 而不是 <code>inv</code>，是因为解线性方程组比求逆再乘更稳、更快。
+数学上等价，数值上 <code>solve</code> 更好。
+</p>
+
+<h2>C.8 手算一个完整例子</h2>
+
+<p>两个样本，一个特征，所以 w 是一个数。</p>
+
+<pre><code>X = [[1],        y = [3,
+     [2]]             5]        n = 2, d = 1</code></pre>
+
+<p>损失函数：</p>
+
+<div class="eq">
+L(w) = (1/2) [ (1·w − 3)² + (2·w − 5)² ]
+</div>
+
+<p>展开：</p>
+
+<div class="eq">
+= (1/2) [ (w² − 6w + 9) + (4w² − 20w + 25) ]<br>
+= (1/2) [ 5w² − 26w + 34 ]<br>
+= 2.5w² − 13w + 17
+</div>
+
+<p>求导并令其为 0：</p>
+
+<div class="eq">
+dL/dw = 5w − 13 = 0　⟹　w = 13/5 = <b>2.6</b>
+</div>
+
+<p>用公式验证。先算两个量：</p>
+
+<div class="eq">
+<i class="v">X</i><sup>T</sup><i class="v">X</i> = [1 2] · [[1],[2]] = 1² + 2² = 5<br>
+<i class="v">X</i><sup>T</sup><i class="v">y</i> = [1 2] · [3, 5] = 1·3 + 2·5 = 13
+</div>
+
+<p>代入梯度公式：</p>
+
+<div class="eq">
+∇ = (2/n) <i class="v">X</i><sup>T</sup>(<i class="v">Xw</i> − <i class="v">y</i>)<br>
+= (2/2) [ 5w − 13 ] = 5w − 13
+</div>
+
+<p>和手算的导数一模一样。再解 5w − 13 = 0，得 w = 2.6，也一致。</p>
+
+<div class="callout tip">
+  <span class="label">动手</span>
+  <p>把这个例子改成 <code>X = [[1],[2],[3]]</code>、<code>y = [2, 4, 6]</code>，
+  自己算一遍。答案应该是 w = 2（因为数据完全在 y = 2x 上，残差为 0）。</p>
+</div>
+
+<h2>C.9 那 2 和 n 到底起什么作用</h2>
+
+<p>很多人第一次看到 (2/n) 会问：为什么要带这两个常数？</p>
+
+<ul>
+<li><b>2 来自平方求导。</b>d(x²)/dx = 2x，这个 2 一定会出现。</li>
+<li><b>n 来自取平均。</b>L 定义里除以 n，求导后保留。</li>
+</ul>
+
+<p>它们不改变最优解的位置——因为常数因子乘在梯度上，让梯度为 0 的点还是那些点。</p>
+
+<p>但在梯度下降里，它们会和学习率合并：</p>
+
+<div class="eq">
+<i class="v">w</i> ← <i class="v">w</i> − η · (2/n)<i class="v">X</i><sup>T</sup>(<i class="v">Xw</i> − <i class="v">y</i>)
+</div>
+
+<p>
+如果嫌 (2/n) 麻烦，可以把它吸收进 η：定义 η' = 2η/n，式子就变成 w ← w − η'X<sup>T</sup>(Xw − y)。
+<b>数学等价，只是学习率的含义变了。</b>
+</p>
+
+<h2>C.10 和代码逐行对应</h2>
+
+<pre><code>pred = X @ w_gd                      <span class="c"># ŷ = Xw</span>
+loss = ((pred - y) ** 2).mean()      <span class="c"># L = (1/n) Σ (ŷᵢ - yᵢ)²</span>
+grad = 2 * X.T @ (pred - y) / n      <span class="c"># ∇L = (2/n) Xᵀ(Xw - y)</span>
+w_gd -= lr * grad                    <span class="c"># w ← w - η∇L</span></code></pre>
+
+<p>四行代码，四个公式，一一对应。<b>现在这四行对你来说不再是黑箱了。</b></p>
+
+<h2>C.11 带截距怎么办</h2>
+
+<p>前面的模型没有截距项。真实的线性回归通常是：</p>
+
+<div class="eq">
+ŷ<sub>i</sub> = <i class="v">w</i> · <i class="v">x</i><sub>i</sub> + b
+</div>
+
+<p>处理办法很巧妙：<b>给 X 加一列全 1，把 b 当成 w 的最后一个分量。</b></p>
+
+<pre><code>原 X (n, 2)          →    X' (n, 3)
+[[x11, x12]]              [[x11, x12, 1]]
+[[x21, x22]]              [[x21, x22, 1]]
+  ...                       ...
+[[xn1, xn2]]              [[xn1, xn2, 1]]
+
+w = [w1, w2]         →    w' = [w1, w2, b]</code></pre>
+
+<p>这样一来 <i class="v">X</i>′<i class="v">w</i>′ = w<sub>1</sub>x<sub>1</sub> + w<sub>2</sub>x<sub>2</sub> + b，
+就和原来的式子完全一样了。</p>
+
+<p>
+<b>所以梯度公式一个字都不用改。</b>这也是为什么代码里 X 的形状是 (n, d) 而不是 (n, d+1)——
+2.6 节的例子没加截距，如果你想加，就在 X 后面 <code>np.hstack([X, np.ones((n,1))])</code>。
+</p>
+
+<h2>C.12 小结</h2>
+
+<div class="endmatter">
+
+<div class="takeaway">
+  <h3>这条推导链的五个关节</h3>
+  <ol>
+    <li><b>模型</b>：ŷ = Xw，把所有样本的预测写成一个矩阵乘法。</li>
+    <li><b>损失</b>：L = (1/n)‖Xw − y‖²，平方是为了消除符号且处处可导。</li>
+    <li><b>求导</b>：对每个 w<sub>k</sub> 单独求偏导，只有 X<sub>ik</sub>w<sub>k</sub> 那一项有贡献。</li>
+    <li><b>组装</b>：Σ<sub>i</sub>X<sub>ik</sub>(Xw−y)<sub>i</sub> 正是 X<sup>T</sup>(Xw−y) 的第 k 个分量。</li>
+    <li><b>几何</b>：梯度为零 ⟺ 残差与 X 的每一列正交 ⟺ 预测点是列空间中离 y 最近的点。</li>
+  </ol>
+</div>
+
+<div class="exercises">
+  <h3>练习</h3>
+  <ol>
+    <li>不看正文，用分量法把梯度推一遍。卡住的地方回去看 C.4 的对应步骤。</li>
+    <li>用矩阵求导法推一遍，写出每一步用了哪条规则。</li>
+    <li>手算 X=[[1],[2],[3]]、y=[2,4,6] 的例子，验证 w = 2。</li>
+    <li>如果损失改成 L = (1/n)Σ|ŷ<sub>i</sub> − y<sub>i</sub>|（绝对值），梯度是什么？
+        在 w 等于最优解时会出什么问题？
+        <span class="hint">绝对值在 0 点不可导，梯度会在最优点附近震荡。</span></li>
+    <li>（进阶）如果给损失加上 L2 正则 L = (1/n)‖Xw−y‖² + λ‖w‖²，重新求梯度。
+        <span class="hint">答案：(2/n)Xᵀ(Xw−y) + 2λw。这就是「权重衰减」。</span></li>
+    <li>（思考）为什么说 X<sup>T</sup>X 可逆要求「X 的列线性无关」？
+        如果两列完全一样会发生什么？
+        <span class="hint">可以从「有两个特征提供完全相同的信息」这个角度理解。</span></li>
+  </ol>
+</div>
+
+<button class="markread" id="markread">○ 标记本章已读</button>
+
+<div class="chapnav" id="chapnav"></div>
+
+</div>
+
+</main>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
