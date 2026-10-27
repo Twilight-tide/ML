@@ -325,13 +325,14 @@ acc = ((sigmoid(X_te @ w + b) &gt; <span class="n">0.5</span>).astype(int) == y_
 <p>输出大致是：</p>
 
 <pre><code>step    0  loss 0.6931
-step  200  loss 0.1024
-step  400  loss 0.0834
+step  200  loss 0.0815
+step  400  loss 0.0680
 ...
 测试集准确率: 0.9737</code></pre>
 
 <p>
-97.4%，和 <code>sklearn.linear_model.LogisticRegression</code> 差不到 1 个百分点。
+97.4%，和 <code>sklearn.linear_model.LogisticRegression</code> 在同一份数据上的 0.9825 相比，
+差 0.88 个百分点。
 如果你跑出来明显低于这个数，八成是梯度推错了或者忘了标准化。
 </p>
 

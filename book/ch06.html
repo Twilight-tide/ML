@@ -260,47 +260,61 @@ Var( <i class="v">q</i>·<i class="v">k</i> / √d<sub>k</sub> ) = d<sub>k</sub>
 
 <p>这段代码是本章的核心实验，务必跑一遍。它会让你对 √d<sub>k</sub> 的理解从「记住」变成「算过」。</p>
 
+<p>
+构造方式要贴近真实的注意力：<b>T 个位置，每个位置对所有 T 个位置打分</b>，得到一张 T×T 的分数矩阵，
+再对每一行做 softmax。这样比较的才是「一次注意力分配有多尖」。
+</p>
+
 <pre><code><span class="k">import</span> torch, math
 
 torch.manual_seed(<span class="n">0</span>)
+T = <span class="n">64</span>                      <span class="c"># 64 个位置，互相打分</span>
 
-<span class="k">print</span>(<span class="s">f"{'d_k':&gt;5} {'std(q·k)':&gt;10} {'理论√d_k':&gt;10} {'softmax最大值':&gt;14} {'熵':&gt;8}"</span>)
+<span class="k">print</span>(<span class="s">"d_k    std   √d_k |  未缩放 max   熵 |  缩放后 max   熵"</span>)
 <span class="k">for</span> d_k <span class="k">in</span> [<span class="n">4</span>, <span class="n">16</span>, <span class="n">64</span>, <span class="n">256</span>, <span class="n">512</span>]:
-    q = torch.randn(<span class="n">4096</span>, d_k)
-    k = torch.randn(<span class="n">4096</span>, d_k)
-    dots = (q * k).sum(-<span class="n">1</span>)                 <span class="c"># 4096 个内积</span>
+    Q = torch.randn(T, d_k)
+    K = torch.randn(T, d_k)
+    scores = Q @ K.T                              <span class="c"># (T, T) 每个 query 对所有 key</span>
 
-    <span class="c"># 不缩放：看 softmax 有多尖</span>
-    p_raw = torch.softmax(dots, dim=<span class="n">-1</span>)
-    <span class="c"># 缩放后</span>
-    p_scaled = torch.softmax(dots / math.sqrt(d_k), dim=<span class="n">-1</span>)
+    p_raw = torch.softmax(scores, dim=-<span class="n">1</span>)
+    p_scaled = torch.softmax(scores / math.sqrt(d_k), dim=-<span class="n">1</span>)
 
-    ent = -(p_scaled * p_scaled.log()).sum()
-    <span class="k">print</span>(<span class="s">f"{d_k:&gt;5} {dots.std():&gt;10.2f} {math.sqrt(d_k):&gt;10.2f} "</span>
-          <span class="s">f"{p_raw.max():&gt;14.4f} {ent:&gt;8.2f}"</span>)</code></pre>
+    p_raw = p_raw.clamp_min(<span class="n">1e-12</span>)               <span class="c"># 防止 log(0) 变 nan</span>
+    p_scaled = p_scaled.clamp_min(<span class="n">1e-12</span>)
 
-<p>预期输出（数值会有小差异）：</p>
+    <span class="k">print</span>(<span class="s">f"{d_k:&gt;4} {scores.std():&gt;6.2f} {math.sqrt(d_k):&gt;6.2f} | "</span>
+          <span class="s">f"{p_raw.max(-1).values.mean():&gt;11.4f} {-(p_raw*p_raw.log()).sum(-1).mean():&gt;5.2f} | "</span>
+          <span class="s">f"{p_scaled.max(-1).values.mean():&gt;11.4f} {-(p_scaled*p_scaled.log()).sum(-1).mean():&gt;5.2f}"</span>)</code></pre>
 
-<pre><code>  d_k  std(q·k)  理论√d_k   softmax最大值       熵
-    4      2.00       2.00         0.0203     3.31
-   16      4.00       4.00         0.0904     4.12
-   64      7.98       8.00         0.5220     4.86
-  256     15.98      16.00         0.9975     1.02
-  512     22.55      22.62         1.0000     0.09</code></pre>
+<p>输出：</p>
+
+<pre><code>d_k    std   √d_k |  未缩放 max   熵 |  缩放后 max   熵
+   4   2.05   2.00 |      0.3145  2.70 |      0.1230  3.65
+  16   3.96   4.00 |      0.5614  1.44 |      0.1039  3.69
+  64   7.91   8.00 |      0.7674  0.62 |      0.1006  3.70
+ 256  16.42  16.00 |      0.8736  0.34 |      0.0988  3.68
+ 512  22.82  22.63 |      0.9101  0.22 |      0.1136  3.66</code></pre>
 
 <p>这张表把整件事说完了：</p>
 
 <ul>
-<li><b>第二列和第三列几乎相等</b>——方差确实是 d<sub>k</sub>，推导没错。</li>
-<li><b>第四列在爆炸</b>——d<sub>k</sub>=512 时 softmax 最大值是 0.99997，已经是一个 one-hot 了。</li>
-<li><b>第五列在坍缩</b>——熵从 4.86 掉到 0.09，意味着分布几乎没有不确定性，梯度也就几乎没有。</li>
+<li><b>第二列和第三列几乎相等</b>——内积的方差确实是 d<sub>k</sub>，推导没错。</li>
+<li><b>未缩放时在塌陷</b>——最大权重从 0.31 涨到 0.91，熵从 2.70 掉到 0.22。
+d<sub>k</sub>=512 时每个位置几乎只盯住一个位置看，softmax 逼近 one-hot。</li>
+<li><b>缩放之后几乎不动</b>——最大权重稳定在 0.10 附近，熵稳定在 3.7 附近。
+d<sub>k</sub> 从 4 变到 512，注意力分布的形状一模一样。</li>
 </ul>
 
-<div class="callout tip">
-  <span class="label">动手</span>
-  <p>把 <code>p_raw</code> 换成 <code>p_scaled</code>，再看第四列和第五列。
-  你会看到它们在不同 d<sub>k</sub> 下基本<b>持平</b>——这就是缩放的全部意义：
-  <b>让注意力的行为与维度解耦。</b></p>
+<p>
+参考基线：如果完全均匀地看全部 64 个位置，最大权重是 1/64 ≈ 0.016，熵是 ln 64 ≈ 4.16。
+缩放后的 0.10 和 3.7 说明「有偏好，但没走极端」——这正是训练初期希望看到的状态。
+</p>
+
+<div class="callout warn">
+  <span class="label">陷阱</span>
+  <p>那两行 <code>clamp_min(1e-12)</code> 不是装饰。d<sub>k</sub> 很大时 softmax 会输出严格意义上的 0，
+  而 <code>0 × log 0</code> 在代码里会变成 <code>nan</code>，把整列数字污染掉。
+  夹一下只是让熵算得出来，不改变结论——反过来说，<b>出现 nan 本身就是「已经饱和」的证据</b>。</p>
 </div>
 
 <h2>6.7 关于「注意力」这个词</h2>
