@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>知识地图 | 读懂 Transformer</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  .map-wrap{background:#f8f6ee;border-radius:12px;padding:18px 10px;margin:2em 0;overflow-x:auto}
+  .map-wrap svg{display:block;min-width:900px}
+  .map-wrap svg text{font-family:var(--sans)}
+  .legend{display:flex;gap:22px;flex-wrap:wrap;margin:1.4em 0 2em;font-size:12.5px;color:var(--ink-2)}
+  .legend span{display:flex;align-items:center;gap:7px}
+  .dot{width:11px;height:11px;border-radius:3px;display:inline-block}
+</style>
+</head>
+<body>
+<div id="readbar"></div>
+
+<div class="layout">
+<nav class="toc" id="toc">
+  <div class="toc-brand"><a href="index.html">读懂 Transformer</a></div>
+  <div class="toc-sub">2026 · 第一版</div>
+</nav>
+<main>
+
+<header class="chap-head">
+  <div class="chap-no">Knowledge Map</div>
+  <h1>知识地图</h1>
+  <p class="chap-sub">书是线性的，知识不是——这张图画的是「谁依赖谁」</p>
+  <div class="chap-meta">
+    <span>配合全书使用</span>
+    <span>卡住时看这里</span>
+  </div>
+</header>
+
+<p class="lead">
+书必须从头读到尾，因为文字是线性的。但知识不按顺序生长——
+第 7 章的多头注意力，同时依赖第 2 章的内积和第 6 章的式(1)；
+第 9 章的训练循环，需要第 3 章的梯度下降和第 4 章的反向传播。
+这张图把那些藏在章节背后的连线画了出来：<b>箭头指向「用到它的人」</b>。
+</p>
+
+<div class="map-wrap">
+<svg id="map" viewBox="0 0 1100 920" width="100%" role="img">
+<title>知识依赖图</title>
+<desc>从最底层的张量操作与内积出发，逐层向上汇合成注意力、Transformer 与训练流程</desc>
+</svg>
+</div>
+
+<div class="legend">
+  <span><i class="dot" style="background:#E6F1FB;border:1px solid #378ADD"></i>地基（第 2–4 章）</span>
+  <span><i class="dot" style="background:#EAF3DE;border:1px solid #639922"></i>语言建模（第 5 章）</span>
+  <span><i class="dot" style="background:#EEEDFE;border:1px solid #7F77DD"></i>Transformer（第 6–9 章）</span>
+  <span><i class="dot" style="background:#FAEEDA;border:1px solid #EF9F27"></i>整合与验证（第 9–10 章）</span>
+</div>
+
+<h2>五条主线</h2>
+
+<p>图里的节点不是章节，是<b>概念</b>。顺着箭头走，能看到五条独立的生长线：</p>
+
+<table>
+<thead><tr><th>主线</th><th>路径</th><th>在第几章汇合</th></tr></thead>
+<tbody>
+<tr><td><b>张量操作</b></td><td>shape/axis → 广播 → softmax</td><td>第 6 章 softmax 进入注意力</td></tr>
+<tr><td><b>线性代数</b></td><td>内积 → 矩阵乘 → 式(1)</td><td>第 6 章，和内积直接相连</td></tr>
+<tr><td><b>优化</b></td><td>损失 → 梯度 → 梯度下降 → 反向传播</td><td>第 9 章训练循环</td></tr>
+<tr><td><b>语言建模</b></td><td>词表 → 嵌入 → next-token → 交叉熵</td><td>第 5 章建立，第 9 章接上损失</td></tr>
+<tr><td><b>架构</b></td><td>式(1) → 多头 / 位置编码 / 残差 / FFN</td><td>第 9 章拼成完整模型</td></tr>
+</tbody>
+</table>
+
+<div class="callout key">
+  <span class="label">怎么用这张图</span>
+  <p>
+  <b>顺着箭头读</b>：从下往上，是这个概念被用到的顺序。<br>
+  <b>逆着箭头查</b>：某个地方看不懂，就沿着箭头往回翻，缺什么补什么。<br>
+  <b>看横线</b>：同一层的概念彼此独立，可以换顺序学；跨层的必须先有下面的。
+  </p>
+</div>
+
+<h2>三条容易忽略的依赖</h2>
+
+<p>
+图里有些箭头不那么直观，但它们是理解的关键：
+</p>
+
+<p>
+<b>1. 广播 → softmax。</b>softmax 减去最大值那一步，靠的是 <code>keepdims=True</code> 保住维度让广播能对齐。
+广播没懂，softmax 就总是差一个形状。
+</p>
+
+<p>
+<b>2. 内积 → 式(1)。</b>注意力看起来复杂，但它的核心就是「所有位置两两算内积」。
+内积那一节没吃透，Q/K/V 就永远像三个神秘的字母。
+</p>
+
+<p>
+<b>3. 残差 + LayerNorm → 完整模型。</b>这两个不是可选的优化项。
+<b>没有它们，两层以上就训不动。</b>图上把它们画成并列的输入，是因为它们解决的是同一个问题的两面：
+残差给梯度修路，LayerNorm 防止路越走越偏。
+</p>
+
+<h2>如果时间不够</h2>
+
+<p>
+图还标出了「最小可读路径」。如果你只想尽快读懂论文，沿着这条线走：
+</p>
+
+<div class="diagram">
+  <div class="box">shape/axis</div><span class="arrow">→</span>
+  <div class="box">内积</div><span class="arrow">→</span>
+  <div class="box accent">式(1)</div><span class="arrow">→</span>
+  <div class="box">多头</div><span class="arrow">→</span>
+  <div class="box accent">完整模型</div>
+</div>
+
+<p>
+这条线上只有 5 个节点，但少了 softmax、位置编码、掩码，你只能「知道」Transformer 长什么样，
+没法「解释」它为什么这样长。所以它是应急路线，不是推荐路线。
+</p>
+
+<div class="endmatter">
+<div class="takeaway">
+  <h3>这张图的三个用法</h3>
+  <ol>
+    <li><b>开读前</b>花两分钟看一眼全貌，知道终点在哪、要经过几站。</li>
+    <li><b>卡住时</b>找到当前节点，顺着箭头往回退，缺的那一环就是答案。</li>
+    <li><b>学完后</b>再回来看，测试自己能不能把每条箭头讲出理由。讲不出的，就是没真懂的。</li>
+  </ol>
+</div>
+
+<button class="markread" id="markread">○ 标记本章已读</button>
+
+<div class="chapnav" id="chapnav"></div>
+</div>
+
+</main>
+</div>
+
+<script src="app.js"></script>
+<script>
+(function () {
+  const NODES = [
+    { id: 'shape',   label: 'shape / axis',        layer: 1, kind: 'base' },
+    { id: 'dot',     label: '内积 = 相似度',        layer: 1, kind: 'base' },
+    { id: 'loss',    label: '损失 L',              layer: 1, kind: 'base' },
+
+    { id: 'reshape', label: 'reshape / transpose',  layer: 2, kind: 'base' },
+    { id: 'bcast',   label: '广播',                 layer: 2, kind: 'base' },
+    { id: 'matmul',  label: '矩阵乘 @',             layer: 2, kind: 'base' },
+    { id: 'grad',    label: '梯度 ∇L',              layer: 2, kind: 'base' },
+
+    { id: 'softmax', label: 'softmax',              layer: 3, kind: 'base' },
+    { id: 'gd',      label: '梯度下降',              layer: 3, kind: 'base' },
+    { id: 'vocab',   label: '词表 / token',          layer: 3, kind: 'lang' },
+
+    { id: 'attn',    label: '注意力 式(1)',          layer: 4, kind: 'tf' },
+    { id: 'bp',      label: '反向传播',              layer: 4, kind: 'base' },
+    { id: 'embed',   label: '嵌入 embedding',        layer: 4, kind: 'lang' },
+
+    { id: 'sqrt',    label: '√d_k 缩放',            layer: 5, kind: 'tf' },
+    { id: 'mha',     label: '多头注意力',            layer: 5, kind: 'tf' },
+    { id: 'pos',     label: '位置编码',              layer: 5, kind: 'tf' },
+    { id: 'res',     label: '残差 + LayerNorm',      layer: 5, kind: 'tf' },
+    { id: 'ffn',     label: '前馈 FFN',              layer: 5, kind: 'tf' },
+    { id: 'nexttok', label: 'next-token 预测',       layer: 5, kind: 'lang' },
+
+    { id: 'mask',    label: '因果掩码',              layer: 6, kind: 'tf' },
+    { id: 'tie',     label: '权重共享',              layer: 6, kind: 'tf' },
+    { id: 'warmup',  label: 'warmup 学习率',         layer: 6, kind: 'tf' },
+    { id: 'ce',      label: '交叉熵',                layer: 6, kind: 'lang' },
+
+    { id: 'model',   label: '完整 Transformer',      layer: 7, kind: 'integ' },
+    { id: 'train',   label: '训练循环',              layer: 7, kind: 'integ' },
+
+    { id: 'paper',   label: '论文精读',              layer: 8, kind: 'integ' },
+    { id: 'ablate',  label: '消融实验',              layer: 8, kind: 'integ' }
+  ];
+
+  const EDGES = [
+    ['shape', 'reshape'], ['shape', 'bcast'], ['bcast', 'softmax'],
+    ['dot', 'matmul'], ['matmul', 'attn'], ['softmax', 'attn'], ['dot', 'attn'],
+    ['loss', 'grad'], ['grad', 'gd'], ['gd', 'bp'],
+    ['vocab', 'embed'], ['embed', 'nexttok'], ['nexttok', 'ce'],
+    ['attn', 'sqrt'], ['attn', 'mha'],
+    ['mha', 'model'], ['pos', 'model'], ['res', 'model'], ['ffn', 'model'], ['mask', 'model'],
+    ['tie', 'model'],
+    ['warmup', 'train'], ['ce', 'train'], ['bp', 'train'], ['model', 'train'],
+    ['model', 'paper'], ['train', 'paper'], ['model', 'ablate'], ['paper', 'ablate']
+  ];
+
+  const STYLE = {
+    base:  { fill: '#E6F1FB', stroke: '#378ADD', text: '#0C447C' },
+    lang:  { fill: '#EAF3DE', stroke: '#639922', text: '#27500A' },
+    tf:    { fill: '#EEEDFE', stroke: '#7F77DD', text: '#3C3489' },
+    integ: { fill: '#FAEEDA', stroke: '#EF9F27', text: '#633806' }
+  };
+
+  const W = 1100, NW = 132, NH = 46, GAP = 20;
+  const LAYER_Y = { 1: 840, 2: 740, 3: 640, 4: 540, 5: 430, 6: 320, 7: 205, 8: 100 };
+
+  const byLayer = {};
+  NODES.forEach(n => {
+    (byLayer[n.layer] = byLayer[n.layer] || []).push(n);
+  });
+
+  const pos = {};
+  Object.keys(byLayer).forEach(L => {
+    const arr = byLayer[L];
+    const total = arr.length * NW + (arr.length - 1) * GAP;
+    const startX = (W - total) / 2;
+    arr.forEach((n, i) => {
+      pos[n.id] = { x: startX + i * (NW + GAP) + NW / 2, y: LAYER_Y[L] };
+    });
+  });
+
+  const svg = document.getElementById('map');
+  const NS = 'http://www.w3.org/2000/svg';
+
+  const defs = document.createElementNS(NS, 'defs');
+  defs.innerHTML =
+    '<marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" ' +
+    'orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="#a8a29a" ' +
+    'stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></marker>';
+  svg.appendChild(defs);
+
+  EDGES.forEach(([a, b]) => {
+    const p1 = pos[a], p2 = pos[b];
+    if (!p1 || !p2) return;
+    const y1 = p1.y - NH / 2, y2 = p2.y + NH / 2;
+    const mid = (y1 + y2) / 2;
+    const path = document.createElementNS(NS, 'path');
+    path.setAttribute('d', `M ${p1.x} ${y1} C ${p1.x} ${mid}, ${p2.x} ${mid}, ${p2.x} ${y2}`);
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', '#c9c3b6');
+    path.setAttribute('stroke-width', '1.1');
+    path.setAttribute('marker-end', 'url(#ar)');
+    svg.appendChild(path);
+  });
+
+  NODES.forEach(n => {
+    const p = pos[n.id], s = STYLE[n.kind];
+    const g = document.createElementNS(NS, 'g');
+
+    const r = document.createElementNS(NS, 'rect');
+    r.setAttribute('x', p.x - NW / 2);
+    r.setAttribute('y', p.y - NH / 2);
+    r.setAttribute('width', NW);
+    r.setAttribute('height', NH);
+    r.setAttribute('rx', '8');
+    r.setAttribute('fill', s.fill);
+    r.setAttribute('stroke', s.stroke);
+    r.setAttribute('stroke-width', '0.8');
+    g.appendChild(r);
+
+    const t = document.createElementNS(NS, 'text');
+    t.setAttribute('x', p.x);
+    t.setAttribute('y', p.y);
+    t.setAttribute('text-anchor', 'middle');
+    t.setAttribute('dominant-baseline', 'central');
+    t.setAttribute('font-size', '12.5');
+    t.setAttribute('fill', s.text);
+    t.textContent = n.label;
+    g.appendChild(t);
+
+    svg.appendChild(g);
+  });
+})();
+</script>
+</body>
+</html>

@@ -2,6 +2,7 @@
 
 const BOOK = [
   { file: "index.html",    no: "",  title: "封面与阅读指南", group: "卷首" },
+  { file: "map.html",      no: "",  title: "知识地图",           group: "卷首" },
   { file: "ch01.html",     no: "1", title: "先跑起来",           group: "第一部 · 地基" },
   { file: "ch02.html",     no: "2", title: "把数学翻译成代码",   group: "第一部 · 地基" },
   { file: "ch03.html",     no: "3", title: "机器学习的最小闭环", group: "第一部 · 地基" },
