@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>模型此刻在想什么 · 实时预测分布</title>
+<style>
+  :root{
+    --bg:#fbfaf7; --card:#ffffff; --ink:#1c1917; --ink2:#57534e; --ink3:#8a8378;
+    --line:#e7e3dc; --accent:#3d4fb3; --accent-soft:#eef0fa;
+    --warm:#b45309; --warm-soft:#fdf4e6; --green:#2f7d5d;
+    --mono:ui-monospace,"Cascadia Code",Consolas,"Liberation Mono",monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei","PingFang SC",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+    -webkit-font-smoothing:antialiased;
+  }
+  .app{max-width:1180px;margin:0 auto;padding:28px 24px 60px}
+
+  header{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;margin-bottom:22px}
+  h1{font-size:19px;font-weight:600;margin:0;letter-spacing:-.01em}
+  .sub{font-size:12.5px;color:var(--ink3)}
+  .meta{margin-left:auto;font-size:11.5px;color:var(--ink3);font-family:var(--mono)}
+
+  main{display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 20px}
+  .label{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3);font-weight:600;margin-bottom:10px}
+
+  textarea{
+    width:100%;height:190px;resize:vertical;border:1px solid var(--line);border-radius:9px;
+    padding:13px 14px;font-family:var(--mono);font-size:13.5px;line-height:1.7;
+    background:#fcfbf8;color:var(--ink);outline:none;transition:border-color .15s;
+  }
+  textarea:focus{border-color:#b9c0e8;background:#fff}
+
+  .chips{display:flex;gap:7px;flex-wrap:wrap;margin-top:11px}
+  .chip{
+    font-family:var(--mono);font-size:11.5px;padding:4px 10px;border-radius:20px;
+    border:1px solid var(--line);background:#faf8f4;color:var(--ink2);cursor:pointer;
+    transition:all .15s;
+  }
+  .chip:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+
+  .stats{display:flex;gap:20px;flex-wrap:wrap;margin-top:16px;padding-top:15px;border-top:1px solid var(--line)}
+  .stat{font-size:11px;color:var(--ink3)}
+  .stat b{display:block;font-size:19px;color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums;margin-top:2px;line-height:1.2}
+  .stat b.warn{color:var(--warm)}
+
+  .temp{margin-top:16px;padding-top:15px;border-top:1px solid var(--line)}
+  .temp-row{display:flex;align-items:center;gap:12px}
+  input[type=range]{flex:1;accent-color:var(--accent);height:3px}
+  .tval{font-family:var(--mono);font-size:12.5px;color:var(--ink2);min-width:34px;text-align:right}
+
+  .bars{display:flex;flex-direction:column;gap:5px;margin-top:2px}
+  .row{display:grid;grid-template-columns:34px 1fr 44px;gap:9px;align-items:center;height:19px}
+  .ch{
+    font-family:var(--mono);font-size:12px;color:var(--ink2);text-align:center;
+    background:#f4f1e9;border-radius:4px;padding:1px 0;overflow:hidden;white-space:nowrap;
+  }
+  .track{height:12px;background:#f2efe6;border-radius:3px;overflow:hidden}
+  .track i{
+    display:block;height:100%;width:0;border-radius:3px;
+    background:linear-gradient(90deg,#8f9ce8,#3d4fb3);
+    transition:width .18s cubic-bezier(.3,.9,.3,1);
+  }
+  .row.top .ch{background:var(--accent-soft);color:var(--accent);font-weight:600}
+  .row.top .track i{background:linear-gradient(90deg,#f0a04b,#c2620a)}
+  .pct{font-family:var(--mono);font-size:11px;color:var(--ink3);text-align:right;font-variant-numeric:tabular-nums}
+
+  .hint{margin-top:14px;font-size:11.5px;color:var(--ink3);line-height:1.6}
+  .warnbox{
+    margin-top:12px;font-size:12px;color:var(--warm);background:var(--warm-soft);
+    padding:9px 12px;border-radius:8px;border-left:2px solid var(--warm);display:none;
+  }
+  .warnbox.on{display:block}
+
+  @media(max-width:860px){
+    main{grid-template-columns:1fr}
+    textarea{height:140px}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header>
+    <h1>模型此刻在想什么</h1>
+    <span class="sub">每敲一个字符，右边的分布就变一次</span>
+    <span class="meta" id="meta"></span>
+  </header>
+
+  <main>
+    <section class="card">
+      <div class="label">输入</div>
+      <textarea id="text" spellcheck="false" placeholder="试着输入 def ，看看模型觉得下一个字符是什么"></textarea>
+
+      <div class="chips">
+        <span class="chip" data-fill="def ">def&nbsp;</span>
+        <span class="chip" data-fill="import ">import&nbsp;</span>
+        <span class="chip" data-fill="    return self.">&nbsp;&nbsp;&nbsp;&nbsp;return self.</span>
+        <span class="chip" data-fill="class Foo:">class Foo:</span>
+        <span class="chip" data-fill="今天天气">中文测试</span>
+      </div>
+
+      <div class="warnbox" id="warn"></div>
+
+      <div class="stats">
+        <div class="stat">困惑度<b id="ppl">—</b></div>
+        <div class="stat">分布熵<b id="ent">—</b></div>
+        <div class="stat">已读 token<b id="ntok">0</b></div>
+      </div>
+
+      <div class="temp">
+        <div class="temp-row">
+          <span class="stat" style="min-width:38px">温度</span>
+          <input type="range" id="temp" min="0.1" max="2" step="0.05" value="1">
+          <span class="tval" id="tval">1.00</span>
+        </div>
+        <div class="hint">温度只影响右侧条形图，不改变模型的原始输出。调低会变尖，调高会变平。</div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="label">下一个字符的概率（前 20）</div>
+      <div class="bars" id="bars"></div>
+      <div class="hint">
+        条形是 <code>softmax(logits / T)</code> 的结果，仅保留最高的 20 个候选并重新归一化。
+        橙色那条是当前最可能的字符。
+      </div>
+    </section>
+  </main>
+
+</div>
+
+<script>
+(function () {
+  const elText = document.getElementById('text');
+  const elBars = document.getElementById('bars');
+  const elPpl = document.getElementById('ppl');
+  const elEnt = document.getElementById('ent');
+  const elNtok = document.getElementById('ntok');
+  const elTemp = document.getElementById('temp');
+  const elTval = document.getElementById('tval');
+  const elWarn = document.getElementById('warn');
+  const elMeta = document.getElementById('meta');
+
+  const ROWS = 20;
+  const rows = [];
+  let cache = null;
+  let timer = null;
+
+  for (let i = 0; i < ROWS; i++) {
+    const r = document.createElement('div');
+    r.className = 'row';
+    r.innerHTML = '<span class="ch"></span><span class="track"><i></i></span><span class="pct"></span>';
+    elBars.appendChild(r);
+    rows.push({
+      el: r,
+      ch: r.querySelector('.ch'),
+      bar: r.querySelector('.track i'),
+      pct: r.querySelector('.pct')
+    });
+  }
+
+  function setMeta() {
+    fetch('/api/meta').then(r => r.json()).then(m => {
+      elMeta.textContent = m.params.toLocaleString() + ' 参数 · ' + m.device + ' · 词表 ' + m.vocab;
+    }).catch(() => {});
+  }
+
+  function render() {
+    const T = parseFloat(elTemp.value);
+    elTval.textContent = T.toFixed(2);
+
+    if (!cache || !cache.ok) {
+      rows.forEach(r => { r.ch.textContent = ''; r.bar.style.width = '0%'; r.pct.textContent = ''; });
+      elPpl.textContent = '—';
+      elEnt.textContent = '—';
+      return;
+    }
+
+    const top = cache.topk;
+    const m = Math.max.apply(null, top.map(t => t.logit));
+    const exps = top.map(t => Math.exp((t.logit - m) / T));
+    const sum = exps.reduce((a, b) => a + b, 0);
+    const probs = exps.map(e => e / sum);
+    const maxP = Math.max.apply(null, probs);
+
+    for (let i = 0; i < ROWS; i++) {
+      const r = rows[i];
+      if (i < probs.length) {
+        const w = Math.max(0.6, (probs[i] / maxP) * 100);
+        r.ch.textContent = top[i].ch;
+        r.bar.style.width = w + '%';
+        r.pct.textContent = (probs[i] * 100).toFixed(1);
+        r.el.classList.toggle('top', i === 0);
+      } else {
+        r.ch.textContent = '';
+        r.bar.style.width = '0%';
+        r.pct.textContent = '';
+        r.el.classList.remove('top');
+      }
+    }
+
+    elPpl.textContent = (cache.ppl === null || cache.ppl === undefined) ? '—' : cache.ppl.toFixed(2);
+    elEnt.textContent = cache.entropy.toFixed(2);
+    elNtok.textContent = cache.n_tokens;
+
+    if (cache.skipped && cache.skipped.length) {
+      elWarn.classList.add('on');
+      elWarn.textContent = '这些字符不在词表里，已被跳过：' + cache.skipped.join(' ');
+    } else {
+      elWarn.classList.remove('on');
+    }
+  }
+
+  function query() {
+    const text = elText.value;
+    if (!text.trim()) {
+      cache = null;
+      render();
+      return;
+    }
+    fetch('/api/predict', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: text })
+    }).then(r => r.json()).then(d => {
+      cache = d;
+      if (!d.ok && d.skipped && d.skipped.length) {
+        elWarn.classList.add('on');
+        elWarn.textContent = '这些字符不在词表里，已被跳过：' + d.skipped.join(' ');
+      }
+      render();
+    }).catch(err => {
+      elWarn.classList.add('on');
+      elWarn.textContent = '请求失败：' + err;
+    });
+  }
+
+  elText.addEventListener('input', () => {
+    clearTimeout(timer);
+    timer = setTimeout(query, 70);
+  });
+
+  elTemp.addEventListener('input', render);
+
+  document.querySelectorAll('.chip').forEach(c => {
+    c.addEventListener('click', () => {
+      elText.value = c.dataset.fill;
+      query();
+      elText.focus();
+    });
+  });
+
+  setMeta();
+  render();
+  elText.focus();
+})();
+</script>
+</body>
+</html>
