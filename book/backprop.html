@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>附录 D · 反向传播：手算一遍 | 读懂 Transformer</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="readbar"></div>
+
+<div class="layout">
+<nav class="toc" id="toc">
+  <div class="toc-brand"><a href="index.html">读懂 Transformer</a></div>
+  <div class="toc-sub">2026 · 第一版</div>
+</nav>
+<main>
+
+<header class="chap-head">
+  <div class="chap-no">Appendix D</div>
+  <h1>反向传播：手算一遍</h1>
+  <p class="chap-sub">一个 9 个参数的小网络，每个数字都写出来</p>
+  <div class="chap-meta">
+    <span>约 2 小时</span>
+    <span>第 4 章读不懂就看这里</span>
+    <span>需要纸和笔</span>
+  </div>
+</header>
+
+<p class="lead">
+第 4 章讲的是同一件事，但用了矩阵符号，从两层直接推到十层。
+这一节反过来做：<b>把网络缩到最小，小到每个数字都能手算</b>，
+一步一步走完前向、反向、更新，再回头看那些公式，你会发现它们只是这一遍的简写。
+</p>
+
+<div class="callout tip">
+  <span class="label">怎么读这一节</span>
+  <p>拿一张纸。每读到一处计算，先自己算一遍，再往下看结果。
+  <b>光看不算，读完还是云里雾里。</b>这一节的所有数字都是实际算出来的，你可以逐个核对。</p>
+</div>
+
+<h2>D.1 先把网络缩到最小</h2>
+
+<p>第 4 章的网络是「任意宽度、任意层数」。但理解反向传播不需要那么复杂。</p>
+
+<p>我们用一个 <b>2 → 2 → 1</b> 的网络：两个输入，两个隐藏神经元，一个输出。</p>
+
+<div class="diagram" style="flex-direction:column;gap:6px;align-items:stretch">
+  <div class="box">输入 x = [x₁, x₂]</div>
+  <div class="box">↓ 第一层：z = W₁x + b₁，然后 h = ReLU(z)</div>
+  <div class="box">隐藏 h = [h₁, h₂]</div>
+  <div class="box">↓ 第二层：ŷ = W₂h + b₂</div>
+  <div class="box accent">输出 ŷ（一个数）</div>
+  <div class="box">↓ 损失 L = ½(ŷ − y)²</div>
+</div>
+
+<p>全部参数一共 9 个：</p>
+
+<table>
+<caption>表 D-1　这个网络的全部参数</caption>
+<thead><tr><th>参数</th><th>形状</th><th>取值</th><th>作用</th></tr></thead>
+<tbody>
+<tr><td>W₁</td><td class="num">(2, 2)</td><td class="num">[[0.1, 0.2], [0.3, 0.4]]</td><td>输入 → 隐藏</td></tr>
+<tr><td>b₁</td><td class="num">(2,)</td><td class="num">[0, 0]</td><td>第一层偏置</td></tr>
+<tr><td>W₂</td><td class="num">(2, 1)</td><td class="num">[[0.5], [0.6]]</td><td>隐藏 → 输出</td></tr>
+<tr><td>b₂</td><td class="num">(1,)</td><td class="num">[0]</td><td>第二层偏置</td></tr>
+</tbody>
+</table>
+
+<p>输入和目标也定死：</p>
+
+<div class="eq">
+<i class="v">x</i> = [1, 2]　　y = 1　　（学习率 η = 0.1）
+</div>
+
+<p>为什么偏置全设成 0？因为这样算式最短，能看清结构。真实训练里偏置也是随机初始化的，但梯度公式完全一样。</p>
+
+<h2>D.2 前向：从输入算到损失</h2>
+
+<p>前向就是「按顺序把每层的算式代进去」。四步。</p>
+
+<h3>第 1 步：第一层的线性部分</h3>
+
+<div class="eq">
+<i class="v">z</i> = <i class="v">W</i><sub>1</sub><i class="v">x</i> + <i class="v">b</i><sub>1</sub>
+</div>
+
+<p>展开成标量，每个分量单独算：</p>
+
+<div class="eq">
+z₁ = 0.1 × 1 + 0.2 × 2 = <b>0.5</b><br>
+z₂ = 0.3 × 1 + 0.4 × 2 = <b>1.1</b>
+</div>
+
+<p>所以 <i class="v">z</i> = [0.5, 1.1]。</p>
+
+<h3>第 2 步：过 ReLU</h3>
+
+<div class="eq">
+<i class="v">h</i> = ReLU(<i class="v">z</i>) = [max(0, z₁), max(0, z₂)]
+</div>
+
+<p>两个都是正数，所以原样通过：</p>
+
+<div class="eq">
+<i class="v">h</i> = [0.5, 1.1]
+</div>
+
+<h3>第 3 步：第二层</h3>
+
+<div class="eq">
+ŷ = <i class="v">W</i><sub>2</sub><i class="v">h</i> + <i class="v">b</i><sub>2</sub>
+= 0.5 × 0.5 + 0.6 × 1.1
+</div>
+
+<div class="eq">
+ŷ = 0.25 + 0.66 = <b>0.91</b>
+</div>
+
+<h3>第 4 步：损失</h3>
+
+<div class="eq">
+L = ½(ŷ − y)² = ½(0.91 − 1)² = ½ × 0.0081 = <b>0.00405</b>
+</div>
+
+<div class="callout key">
+  <span class="label">要点</span>
+  <p>前向没有任何新东西：一次矩阵乘、一次 ReLU、一次矩阵乘、一个平方。
+  <b>难的部分全在反向。</b>所以先把这四步在纸上走一遍，确认数字对得上，再往下。</p>
+</div>
+
+<h2>D.3 反向：从损失往回走</h2>
+
+<p>反向传播要回答的问题是：<b>L 对每个参数的偏导是多少？</b></p>
+
+<p>一共有 9 个参数要算：W₁ 四个、b₁ 两个、W₂ 两个、b₂ 一个。</p>
+
+<p>但我们不从参数开始，<b>从损失开始往回走</b>。这是整个方法的核心。</p>
+
+<h3>第 1 步：L 对 ŷ 的导数</h3>
+
+<div class="eq">
+L = ½(ŷ − y)²　⟹　∂L/∂ŷ = (ŷ − y)
+</div>
+
+<p>代入数字：</p>
+
+<div class="eq">
+∂L/∂ŷ = 0.91 − 1 = <b>−0.09</b>
+</div>
+
+<p>
+这个数的含义很直白：<b>ŷ 每增加一点，L 就变化 −0.09 倍。</b>
+因为 ŷ = 0.91 比目标 1 小，所以要让它变大——而梯度是负的，正好指示「往正方向调」。
+</p>
+
+<h3>第 2 步：ŷ 由谁决定</h3>
+
+<div class="eq">
+ŷ = W₂₀ · h₀ + W₂₁ · h₁ + b₂
+</div>
+
+<p>（用 W₂₀ 表示 W₂ 的第 0 个元素，下同。这里 b₂ = 0，先忽略。）</p>
+
+<p>从这个式子能直接读出两件事：</p>
+
+<ul>
+<li><b>ŷ 对 W₂₀ 的偏导 = h₀</b>（因为 W₂₀ 的系数就是 h₀）</li>
+<li><b>ŷ 对 h₀ 的偏导 = W₂₀</b>（因为 h₀ 的系数就是 W₂₀）</li>
+</ul>
+
+<p>这就是链式法则的全部内容：<b>谁和谁相乘，导数就是对方。</b></p>
+
+<h3>第 3 步：L 对 W₂ 的梯度</h3>
+
+<p>用链式法则把两步串起来：</p>
+
+<div class="eq">
+∂L/∂W₂₀ = ∂L/∂ŷ × ∂ŷ/∂W₂₀ = (−0.09) × h₀ = −0.09 × 0.5 = <b>−0.045</b><br>
+∂L/∂W₂₁ = ∂L/∂ŷ × ∂ŷ/∂W₂₁ = (−0.09) × h₁ = −0.09 × 1.1 = <b>−0.099</b>
+</div>
+
+<p>写成向量就是：</p>
+
+<div class="eq">
+∂L/∂<i class="v">W</i><sub>2</sub> = ∂L/∂ŷ · <i class="v">h</i> = −0.09 × [0.5, 1.1] = <b>[−0.045, −0.099]</b>
+</div>
+
+<div class="callout key">
+  <span class="label">记住这个模式</span>
+  <p><b>权重的梯度 = 上游传来的梯度 × 这个权重的输入。</b></p>
+  <p>W₂ 的输入是 h（隐藏层的输出），所以乘 h。等一下算 W₁ 时，它的输入是 x，就乘 x。
+  同一个模式，只是换了名字。</p>
+</div>
+
+<h3>第 4 步：L 对 h 的梯度</h3>
+
+<p>反向传播必须继续往回流，因为 h 也是「算出来的」，它背后还有 W₁。</p>
+
+<div class="eq">
+∂L/∂h₀ = ∂L/∂ŷ × ∂ŷ/∂h₀ = (−0.09) × W₂₀ = −0.09 × 0.5 = <b>−0.045</b><br>
+∂L/∂h₁ = ∂L/∂ŷ × ∂ŷ/∂h₁ = (−0.09) × W₂₁ = −0.09 × 0.6 = <b>−0.054</b>
+</div>
+
+<div class="eq">
+∂L/∂<i class="v">h</i> = [−0.045, −0.054]
+</div>
+
+<div class="callout key">
+  <span class="label">对照</span>
+  <p>注意第 3 步用的是 <i class="v">h</i>，这一步用的是 <i class="v">W</i><sub>2</sub>。
+  <b>算权重的梯度时乘「输入」，算输入的梯度时乘「权重」。</b>两者刚好交换。</p>
+</div>
+
+<h3>第 5 步：穿过 ReLU</h3>
+
+<p>h = ReLU(z)，所以要先问：ReLU 的导数是什么？</p>
+
+<div class="eq">
+ReLU′(z) = 1（z &gt; 0）　　0（z ≤ 0）
+</div>
+
+<p>
+直觉上：正数区是恒等映射，斜率 1；负数区被压成 0，斜率 0。
+<b>所以 ReLU 的导数就是一个「开关」</b>——正数放行，负数截断。
+</p>
+
+<p>这里的 z = [0.5, 1.1]，两个都大于 0，所以全部放行：</p>
+
+<div class="eq">
+∂L/∂<i class="v">z</i> = ∂L/∂<i class="v">h</i> ⊙ [1, 1] = <b>[−0.045, −0.054]</b>
+</div>
+
+<p>（⊙ 表示逐元素相乘。）</p>
+
+<div class="callout warn">
+  <span class="label">陷阱</span>
+  <p>如果某个 z 是负的，对应的梯度会变成 0，<b>这条路就断了</b>。
+  这就是「神经元死掉」的由来：一个 ReLU 神经元一旦长期输出 0，梯度永远是 0，再也不会被更新。</p>
+</div>
+
+<h3>第 6 步：L 对 W₁ 的梯度</h3>
+
+<p>同样的模式，只是换了一层。W₁ 的输入是 x = [1, 2]。</p>
+
+<p>但 W₁ 是 2×2 的矩阵，四个元素各有各的梯度。逐个算：</p>
+
+<div class="eq">
+∂L/∂W₁[0][0] = ∂L/∂z₀ × x₀ = (−0.045) × 1 = <b>−0.045</b><br>
+∂L/∂W₁[0][1] = ∂L/∂z₀ × x₁ = (−0.045) × 2 = <b>−0.090</b><br>
+∂L/∂W₁[1][0] = ∂L/∂z₁ × x₀ = (−0.054) × 1 = <b>−0.054</b><br>
+∂L/∂W₁[1][1] = ∂L/∂z₁ × x₁ = (−0.054) × 2 = <b>−0.108</b>
+</div>
+
+<p>排成矩阵：</p>
+
+<table>
+<caption>表 D-2　W₁ 的梯度（行是 z 的分量，列是 x 的分量）</caption>
+<thead><tr><th></th><th class="num">x₀ = 1</th><th class="num">x₁ = 2</th></tr></thead>
+<tbody>
+<tr><td><b>∂L/∂z₀ = −0.045</b></td><td class="num">−0.045</td><td class="num">−0.090</td></tr>
+<tr><td><b>∂L/∂z₁ = −0.054</b></td><td class="num">−0.054</td><td class="num">−0.108</td></tr>
+</tbody>
+</table>
+
+<div class="eq">
+∂L/∂<i class="v">W</i><sub>1</sub> = [[−0.045, −0.090], [−0.054, −0.108]]
+</div>
+
+<div class="callout key">
+  <span class="label">为什么是「外积」</span>
+  <p>这个构造叫外积：<b>左边每一行乘右边每一个元素，铺成一张表。</b>
+  每一行来自「上一层传来的梯度」，每一列来自「这一层的输入」。
+  矩阵形式写成 <code>np.outer(dz1, x)</code>，或者更常见的形式 <code>x.T @ dz1</code>（批量时）。</p>
+</div>
+
+<h3>第 7 步：偏置的梯度</h3>
+
+<p>偏置最简单，因为 b 只和一个数相加，导数就是 1：</p>
+
+<div class="eq">
+∂L/∂b₁ = ∂L/∂<i class="v">z</i> = [−0.045, −0.054]<br>
+∂L/∂b₂ = ∂L/∂ŷ = −0.09
+</div>
+
+<p>这就是为什么代码里偏置的梯度常常写作 <code>dz.sum(0)</code>——批量时把每个样本的梯度加起来。</p>
+
+<h2>D.4 更新参数，再算一次</h2>
+
+<p>所有梯度都齐了。用 η = 0.1 更新，规则是「往梯度的反方向走」：</p>
+
+<div class="eq">
+<i class="v">W</i> ← <i class="v">W</i> − η · ∂L/∂<i class="v">W</i>
+</div>
+
+<p>逐个算：</p>
+
+<div class="eq">
+W₂₀ = 0.5 − 0.1 × (−0.045) = 0.5 + 0.0045 = <b>0.5045</b><br>
+W₂₁ = 0.6 − 0.1 × (−0.099) = 0.6 + 0.0099 = <b>0.6099</b>
+</div>
+
+<div class="eq">
+W₁ = [[0.1, 0.2], [0.3, 0.4]] − 0.1 × [[−0.045, −0.090], [−0.054, −0.108]]<br>
+　 = [[0.1045, 0.2090], [0.3054, 0.4108]]
+</div>
+
+<p>注意方向：梯度是负的，所以参数<b>变大</b>。这符合直觉——ŷ 太小了，要让输出变大。</p>
+
+<h3>再前向一次，看损失降了没有</h3>
+
+<div class="eq">
+z₁ = 0.1045 × 1 + 0.2090 × 2 = 0.5225<br>
+z₂ = 0.3054 × 1 + 0.4108 × 2 = 1.1270<br>
+h = [0.5225, 1.1270]（都为正，ReLU 放行）<br>
+ŷ = 0.5045 × 0.5225 + 0.6099 × 1.1270 = 0.2636 + 0.6874 = <b>0.9510</b><br>
+L = ½(0.9510 − 1)² = <b>0.00120</b>
+</div>
+
+<div class="callout key">
+  <span class="label">这就是训练</span>
+  <p>损失从 <b>0.00405</b> 降到 <b>0.00120</b>，一步降了 70%。
+  所有深度学习训练都是这个循环：前向 → 反向 → 更新 → 再前向。
+  <b>区别只是网络大小和步数。</b></p>
+</div>
+
+<h2>D.5 把这一遍压缩成公式</h2>
+
+<p>回头看第 4 章那套公式，你会发现每一行都对应刚才的一步。</p>
+
+<table>
+<thead><tr><th>第 4 章的公式</th><th>对应刚才哪一步</th><th>数值（这个例子）</th></tr></thead>
+<tbody>
+<tr><td>d<i class="v">Z</i> = <i class="v">p</i> − <i class="v">y</i></td><td>D.3 第 1 步</td><td class="num">−0.09</td></tr>
+<tr><td>d<i class="v">W</i><sub>2</sub> = <i class="v">H</i><sup>T</sup>d<i class="v">Z</i></td><td>D.3 第 3 步</td><td class="num">[−0.045, −0.099]</td></tr>
+<tr><td>d<i class="v">H</i> = d<i class="v">Z</i><i class="v">W</i><sub>2</sub><sup>T</sup></td><td>D.3 第 4 步</td><td class="num">[−0.045, −0.054]</td></tr>
+<tr><td>d<i class="v">H</i><sub>pre</sub> = d<i class="v">H</i> ⊙ 𝟙[H &gt; 0]</td><td>D.3 第 5 步</td><td class="num">[−0.045, −0.054]</td></tr>
+<tr><td>d<i class="v">W</i><sub>1</sub> = <i class="v">X</i><sup>T</sup>d<i class="v">H</i><sub>pre</sub></td><td>D.3 第 6 步</td><td class="num">[[−0.045,−0.09],[−0.054,−0.108]]</td></tr>
+</tbody>
+</table>
+
+<p>公式里的 <i class="v">H</i><sup>T</sup>d<i class="v">Z</i> 之所以是转置，是因为要凑出「外积」的形状。
+单样本时它就是 <code>dz × h</code>；批量时 h 变成 (n, h) 的矩阵，转置之后才能和 dz 相乘。</p>
+
+<div class="callout key">
+  <span class="label">一句话记住反向传播</span>
+  <p><b>从损失出发，每一步问「上一层是谁乘出来的」，把上游梯度乘上「对方的数值」，一直乘到最底层。</b><br>
+  算权重梯度时乘「输入」，算输入梯度时乘「权重」——两者永远交换。</p>
+</div>
+
+<h2>D.6 用代码验证这一遍</h2>
+
+<p>二十行代码，跑出来的数字应该和上面完全一致：</p>
+
+<pre><code><span class="k">import</span> numpy <span class="k">as</span> np
+
+x  = np.array([<span class="n">1.0</span>, <span class="n">2.0</span>])
+W1 = np.array([[<span class="n">0.1</span>, <span class="n">0.2</span>], [<span class="n">0.3</span>, <span class="n">0.4</span>]])
+W2 = np.array([[<span class="n">0.5</span>], [<span class="n">0.6</span>]])
+y, lr = <span class="n">1.0</span>, <span class="n">0.1</span>
+
+<span class="c"># 前向</span>
+z1 = W1 @ x
+h  = np.maximum(<span class="n">0</span>, z1)
+yhat = float((W2.T @ h)[<span class="n">0</span>])
+L = <span class="n">0.5</span> * (yhat - y) ** <span class="n">2</span>
+<span class="k">print</span>(<span class="s">"yhat"</span>, yhat, <span class="s">"L"</span>, L)
+
+<span class="c"># 反向</span>
+dyhat = yhat - y
+dW2 = dyhat * h.reshape(-<span class="n">1</span>, <span class="n">1</span>)      <span class="c"># 上游梯度 × 输入</span>
+dh  = W2.flatten() * dyhat          <span class="c"># 上游梯度 × 权重</span>
+dz1 = dh * (z1 &gt; <span class="n">0</span>)                <span class="c"># 穿过 ReLU 的开关</span>
+dW1 = np.outer(dz1, x)              <span class="c"># 上游梯度 × 输入</span>
+
+<span class="k">print</span>(<span class="s">"dW2"</span>, dW2.ravel())
+<span class="k">print</span>(<span class="s">"dW1\n"</span>, dW1)
+
+<span class="c"># 更新</span>
+W1 -= lr * dW1
+W2 -= lr * dW2</code></pre>
+
+<p>输出：</p>
+
+<pre><code>yhat 0.91 L 0.004049999999999997
+dW2 [-0.045 -0.099]
+dW1
+ [[-0.045 -0.09 ]
+ [-0.054 -0.108]]</code></pre>
+
+<p>和手算一致。<b>现在那五行公式对你来说不是符号了，是刚才走过的五步。</b></p>
+
+<h2>D.7 回到 10 万参数</h2>
+
+<p>你可能会问：这个例子只有 9 个参数，本项目有 100,048 个，差了一万倍，能一样吗？</p>
+
+<p><b>完全一样。</b>差别只在三处：</p>
+
+<table>
+<thead><tr><th></th><th>这个例子</th><th>本项目</th></tr></thead>
+<tbody>
+<tr><td>每层的宽度</td><td>2</td><td>64 / 232</td></tr>
+<tr><td>层数</td><td>2</td><td>2（每个解码器层含注意力 + FFN）</td></tr>
+<tr><td>中间的子层</td><td>只有矩阵乘和 ReLU</td><td>注意力、残差、LayerNorm、FFN</td></tr>
+</tbody>
+</table>
+
+<p>前两处只是数字变大，公式一个字不用改。</p>
+
+<p>
+第三处才是真正的区别：<b>Transformer 的每一层内部有更多的「运算节点」，反向传播要多穿几道门。</b>
+但每道门都遵守同一个规则——上游梯度乘本地导数。残差是加法（导数 1），LayerNorm 有自己的公式，
+注意力里有 softmax（第 3 章推过：d<i class="v">z</i> = <i class="v">p</i> − <i class="v">y</i>）。
+</p>
+
+<div class="callout key">
+  <span class="label">要点</span>
+  <p><b>反向传播的复杂度不在于层数多，而在于每层的「本地导数」长什么样。</b>
+  把这个 9 参数的网络推通，剩下的就是为每种新运算补一条本地导数而已。</p>
+</div>
+
+<h2>D.8 几个容易卡住的地方</h2>
+
+<h3>为什么要从后往前，不能从前往后？</h3>
+
+<p>
+因为你要算的是 <b>L 对每个参数的导数</b>，而 L 在最末尾。
+从前往后的话，算到第一层时你还不知道最后的 L 是多少，没法用链式法则。
+</p>
+
+<p>
+从后往前，每走一步都知道「上游已经累积了多少影响」，只要乘上本地导数就行。
+<b>这是唯一可行的方向，不是习惯。</b>
+</p>
+
+<h3>梯度为什么能"乘"？</h3>
+
+<p>因为链式法则：</p>
+
+<div class="eq">
+∂L/∂a = ∂L/∂b × ∂b/∂a
+</div>
+
+<p>
+它的意思是「a 变一点，先影响 b，b 再影响 L」。
+两次影响的比例相乘，就是总的影响比例。这和高中学的复合函数求导是同一条法则。
+</p>
+
+<h3>为什么代码里用 <code>+=</code> 而不是 <code>=</code></h3>
+
+<p>
+因为一个变量可能被用了两次。比如 <code>y = x * x</code>，x 通过两条路影响 y，
+两条路的梯度都要算进来，所以是累加。
+</p>
+
+<p>写成 <code>=</code> 会让后一次覆盖前一次，结果只有正确值的一半。这是手写 autograd 最经典的 bug。</p>
+
+<h3>为什么要对 batch 取平均</h3>
+
+<p>
+因为损失定义成了「平均」：L = (1/n)ΣLᵢ。求导时那个 1/n 会保留下来，
+所以每个样本的梯度加起来之后要除以 n。
+</p>
+
+<p>取平均还是求和，只影响梯度的尺度，不影响方向——本质上会被学习率吸收。</p>
+
+<div class="endmatter">
+
+<div class="takeaway">
+  <h3>这一节想让你带走的</h3>
+  <ol>
+    <li><b>前向是代入，反向是链式法则。</b>没有第三种魔法。</li>
+    <li><b>权重的梯度 = 上游梯度 × 输入；输入的梯度 = 上游梯度 × 权重。</b>两者永远交换。</li>
+    <li><b>ReLU 的导数是个开关</b>，负数区把梯度截断成 0。</li>
+    <li><b>一次完整的训练 = 前向 + 反向 + 更新。</b>本例中损失一步降了 70%。</li>
+    <li><b>9 个参数和 10 万个参数，公式一模一样。</b>只是矩阵变大，外加更多类型的「本地导数」。</li>
+  </ol>
+</div>
+
+<div class="exercises">
+  <h3>练习</h3>
+  <ol>
+    <li>不看正文，在纸上把 D.2 到 D.4 完整走一遍。每一步都写下数字，最后和文中核对。</li>
+    <li>把学习率改成 0.5，重算一次更新。损失降得更多还是更少？再试 2.0，看会不会发散。</li>
+    <li>把输入改成 <code>x = [−1, 2]</code>，重算前向。这时 z₁ 会变成负数，
+        反推时 ReLU 会截断哪一条路？对 W₁ 的梯度有什么影响？</li>
+    <li>把输出层也加一个 ReLU（即 ŷ = ReLU(W₂h)），重推一遍。此时 ∂L/∂ŷ 还等于 ŷ − y 吗？</li>
+    <li>（进阶）把损失换成 L = |ŷ − y|。在 ŷ = 0.91 处，梯度是多少？
+        如果 ŷ 恰好等于 y 呢？<span class="hint">绝对值在 0 点不可导——这是它不如平方好用的原因。</span></li>
+  </ol>
+</div>
+
+<button class="markread" id="markread">○ 标记本章已读</button>
+
+<div class="chapnav" id="chapnav"></div>
+</div>
+
+</main>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
