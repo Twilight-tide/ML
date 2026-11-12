@@ -14,6 +14,7 @@ import json
 import math
 import time
 import csv
+import argparse
 
 import torch
 import torch.nn as nn
@@ -82,6 +83,35 @@ def evaluate(model, data, cfg, lossf):
 
 def main():
     cfg = Config().check()
+
+    # 可选参数：便于在不改配置的前提下切换数据集与输出路径
+    # （如 prepare_data_big.py 生成的大语料）
+    ap = argparse.ArgumentParser(description="训练字符级 Transformer")
+    ap.add_argument("--corpus", default=None, help="语料文件，默认 data/corpus.txt")
+    ap.add_argument("--vocab", default=None, help="词表文件，默认 data/vocab.json")
+    ap.add_argument("--ckpt", default=None, help="模型输出，默认 results/model.pt")
+    ap.add_argument("--log", default=None, help="日志输出，默认 results/train_log.csv")
+    ap.add_argument("--steps", type=int, default=None, help="训练步数")
+    ap.add_argument("--eval-batches", type=int, default=None,
+                    help="每轮验证采样多少批；太小会让 val 抖动（默认 20，"
+                         "约占小验证集的 2%%）")
+    ap.add_argument("--eval-every", type=int, default=None, help="多少步验证一次")
+    args, _ = ap.parse_known_args()
+    if args.corpus:
+        cfg.corpus_file = args.corpus
+    if args.vocab:
+        cfg.vocab_file = args.vocab
+    if args.ckpt:
+        cfg.ckpt_file = args.ckpt
+    if args.log:
+        cfg.log_file = args.log
+    if args.steps:
+        cfg.steps = args.steps
+    if args.eval_batches:
+        cfg.eval_batches = args.eval_batches
+    if args.eval_every:
+        cfg.eval_every = args.eval_every
+
     torch.manual_seed(cfg.seed)
 
     if not torch.cuda.is_available():
@@ -101,6 +131,11 @@ def main():
     print("  学习率预热步数=%d（论文 §5.3 式(3)）" % cfg.warmup_steps)
 
     train, val, itos, stoi = load_data(cfg)
+    # 以词表文件的实际大小为准，避免换词表后 embedding 尺寸对不上
+    if len(itos) != cfg.vocab_size:
+        print("  注意: 词表实际大小 %d，覆盖配置值 %d"
+              % (len(itos), cfg.vocab_size))
+        cfg.vocab_size = len(itos)
     print("  训练/验证字符数: %s / %s" % (format(len(train), ","), format(len(val), ",")))
 
     model = TinyTransformer(cfg.vocab_size, cfg.d_model, cfg.n_heads, cfg.d_ff,
@@ -155,6 +190,9 @@ def main():
         "model_state": model.state_dict(),
         "config": cfg.__dict__,
         "n_params": n_params,
+        # 记录词表路径：换语料后 id 映射会变，加载时必须用回同一份词表
+        "vocab_file": cfg.vocab_file,
+        "corpus_file": cfg.corpus_file,
     }, cfg.ckpt_file)
     print("-" * 74)
     print("训练完成，模型已保存: %s" % cfg.ckpt_file)

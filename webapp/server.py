@@ -54,7 +54,11 @@ def load():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     m = m.to(device)
 
-    v = json.load(open(VOCAB, encoding="utf-8"))
+    # 词表跟着检查点走：换语料后 id 映射会变，用错就是乱码
+    vpath = ck.get("vocab_file") or VOCAB
+    if not os.path.isabs(vpath):
+        vpath = os.path.join(ROOT, vpath)
+    v = json.load(open(vpath, encoding="utf-8"))
     itos = {int(k): ch for k, ch in v["itos"].items()}
     stoi = {ch: i for i, ch in itos.items()}
 

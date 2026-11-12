@@ -36,7 +36,20 @@ def load_model(ckpt_path):
     model.eval()
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     model = model.to(dev)
-    return model, c, dev
+    return model, c, dev, ckpt
+
+
+def load_vocab(ckpt, override=None):
+    """定位词表：命令行 > 检查点里记录的路径 > 默认路径。
+
+    为什么需要这个：换语料后词表 id 映射会变（新旧两版 96 个位置只有 20 个相同），
+    用错词表生成出来就是完全乱码，而且不会报错。
+    """
+    for cand in (override, ckpt.get("vocab_file"), "data/vocab.json"):
+        if cand and os.path.exists(cand):
+            v = json.load(open(cand, encoding="utf-8"))
+            return {int(k): ch for k, ch in v["itos"].items()}, cand
+    raise SystemExit("找不到词表文件，请用 --vocab 指定")
 
 
 def main():
@@ -49,6 +62,8 @@ def main():
     ap.add_argument("--top-k", type=int, default=40, help="只从概率最高的 k 个中采样")
     ap.add_argument("--num", type=int, default=3, help="生成几个样本")
     ap.add_argument("--seed", type=int, default=None)
+    ap.add_argument("--vocab", default=None,
+                    help="词表文件；默认用检查点里记录的，旧检查点回退 data/vocab.json")
     args = ap.parse_args()
 
     if not os.path.exists(args.ckpt):
@@ -57,10 +72,12 @@ def main():
     if args.seed is not None:
         torch.manual_seed(args.seed)
 
-    model, c, dev = load_model(args.ckpt)
-    v = json.load(open("data/vocab.json", encoding="utf-8"))
-    itos = {int(k): ch for k, ch in v["itos"].items()}
+    model, c, dev, ckpt = load_model(args.ckpt)
+    itos, vocab_path = load_vocab(ckpt, args.vocab)
     stoi = {ch: i for i, ch in itos.items()}
+    if len(itos) != c["vocab_size"]:
+        raise SystemExit("词表大小 %d 与模型 %d 不符，请检查 --vocab"
+                         % (len(itos), c["vocab_size"]))
 
     n_params = sum(p.numel() for p in model.parameters())
     print("=" * 74)
@@ -69,6 +86,7 @@ def main():
     print("  模型参数: %s   层数: %d   头数: %d   d_model: %d" % (
         format(n_params, ","), c["n_layers"], c["n_heads"], c["d_model"]))
     print("  设备    : %s" % dev)
+    print("  词表    : %s (%d 字符)" % (vocab_path, len(itos)))
     print("  提示词  : %r" % args.prompt)
     print("  温度    : %.2f   top-k: %s   生成长度: %d 字符" % (
         args.temperature, args.top_k, args.tokens))

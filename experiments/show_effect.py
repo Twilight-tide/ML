@@ -36,7 +36,8 @@ m.eval()
 dev = "cuda" if torch.cuda.is_available() else "cpu"
 m = m.to(dev)
 
-v = json.load(open("data/vocab.json", encoding="utf-8"))
+vpath = ck.get("vocab_file") or "data/vocab.json"
+v = json.load(open(vpath, encoding="utf-8"))
 itos = {int(k): ch for k, ch in v["itos"].items()}
 stoi = {ch: i for i, ch in itos.items()}
 

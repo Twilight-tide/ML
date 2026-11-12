@@ -41,16 +41,24 @@ def load_model(ckpt_path):
                         c["n_layers"], c["max_len"], c["dropout"])
     m.load_state_dict(ckpt["model_state"])
     m.eval()
-    return m, c
+    return m, c, ckpt
 
 
 def main():
-    ckpt_path = "results/model.pt"
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--ckpt", default="results/model.pt")
+    ap.add_argument("--out-prefix", default="results/attention",
+                    help="输出文件名前缀")
+    args = ap.parse_args()
+
+    ckpt_path = args.ckpt
     if not os.path.exists(ckpt_path):
         raise SystemExit("找不到 %s，请先训练" % ckpt_path)
 
-    model, c = load_model(ckpt_path)
-    v = json.load(open("data/vocab.json", encoding="utf-8"))
+    model, c, ckpt = load_model(ckpt_path)
+    vpath = ckpt.get("vocab_file") or "data/vocab.json"
+    v = json.load(open(vpath, encoding="utf-8"))
     itos = {int(k): ch for k, ch in v["itos"].items()}
     stoi = {ch: i for i, ch in itos.items()}
 
@@ -87,7 +95,7 @@ def main():
             ax.set_xticks([]); ax.set_yticks([])
     fig.suptitle("各注意力头的权重矩阵（对应论文附录 图3/图5）", fontsize=12)
     fig.tight_layout()
-    p1 = "results/attention_heads.png"
+    p1 = args.out_prefix + "_heads.png"
     fig.savefig(p1, dpi=130, bbox_inches="tight")
     plt.close(fig)
     print("  已保存: %s" % p1)
@@ -111,7 +119,7 @@ def main():
         fig.colorbar(im, ax=ax, fraction=0.046)
     fig.suptitle("按层平均的注意力（对应论文附录）", fontsize=12)
     fig.tight_layout()
-    p2 = "results/attention_layer_avg.png"
+    p2 = args.out_prefix + "_layer_avg.png"
     fig.savefig(p2, dpi=130, bbox_inches="tight")
     plt.close(fig)
     print("  已保存: %s" % p2)
