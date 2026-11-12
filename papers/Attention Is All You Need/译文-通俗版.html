@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Attention Is All You Need · 通俗版译文</title>
+<style>
+:root{
+  --ink:#1a1a1a; --ink2:#454545; --ink3:#787878;
+  --line:#e0e0e0; --bg:#ffffff; --soft:#f7f7f5;
+  --accent:#1a5fb4; --accent-soft:#eaf1fb;
+  --warn:#a8691a; --warn-soft:#fdf4e6;
+  --key:#2a7a4b; --key-soft:#eaf6ee;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font-family:-apple-system,"Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+  font-size:16.5px; line-height:1.85;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:760px;margin:0 auto;padding:56px 28px 120px}
+
+/* 封面 */
+.cover{border-bottom:3px solid var(--ink);padding-bottom:28px;margin-bottom:44px}
+.cover .eyebrow{font-size:12.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink3);margin-bottom:14px}
+.cover h1{font-size:34px;line-height:1.28;margin:0 0 10px;letter-spacing:-.01em}
+.cover .sub{font-size:18px;color:var(--ink2);margin:0 0 22px;font-weight:400}
+.cover .meta{font-size:13.5px;color:var(--ink3);line-height:1.9}
+.cover .meta b{color:var(--ink2);font-weight:600}
+
+/* 标题层级 */
+h2{
+  font-size:24px;margin:64px 0 8px;padding-top:22px;border-top:1px solid var(--line);
+  letter-spacing:-.005em;
+}
+h2:first-of-type{border-top:none;padding-top:0;margin-top:44px}
+h2 .num{color:var(--accent);font-weight:700;margin-right:10px;font-variant-numeric:tabular-nums}
+h3{font-size:18.5px;margin:38px 0 6px;color:var(--ink)}
+h3 .num{color:var(--ink3);font-weight:600;margin-right:8px;font-size:16px}
+
+/* 段落 */
+p{margin:0 0 18px}
+strong{font-weight:650;color:#000}
+em{font-style:normal;background:linear-gradient(transparent 62%,#fff2a8 62%);padding:0 1px}
+
+/* 「这节在说什么」 */
+.goal{
+  background:var(--accent-soft); border-left:3px solid var(--accent);
+  padding:13px 18px; margin:0 0 26px; font-size:15px; color:#123c73; border-radius:0 4px 4px 0;
+}
+.goal b{color:var(--accent);font-weight:700}
+
+/* 提示框 */
+.box{margin:26px 0;padding:16px 20px;border-radius:5px;font-size:15.2px}
+.box .tag{display:block;font-size:12px;font-weight:700;letter-spacing:.1em;margin-bottom:7px;text-transform:uppercase}
+.box p:last-child{margin-bottom:0}
+.box.plain{background:var(--soft);border:1px solid var(--line)}
+.box.plain .tag{color:var(--ink3)}
+.box.warn{background:var(--warn-soft);border-left:3px solid var(--warn)}
+.box.warn .tag{color:var(--warn)}
+.box.key{background:var(--key-soft);border-left:3px solid var(--key)}
+.box.key .tag{color:var(--key)}
+
+/* 「你书里讲过」 */
+.link{
+  display:inline-block;font-size:12.5px;color:var(--accent);
+  background:var(--accent-soft);padding:2px 7px;border-radius:3px;
+  vertical-align:1px; margin:0 2px;
+}
+
+/* 公式 */
+.formula{
+  margin:22px 0;padding:18px 20px;background:var(--soft);border-radius:5px;
+  text-align:center;font-size:17px;font-family:"Cambria Math",Georgia,serif;
+  overflow-x:auto;
+}
+.formula .note{
+  display:block;margin-top:12px;font-family:-apple-system,"Microsoft YaHei",sans-serif;
+  font-size:14px;color:var(--ink2);text-align:left;line-height:1.75;
+}
+code{
+  font-family:"Cascadia Code",Consolas,monospace;font-size:.9em;
+  background:#f0f0ee;padding:1.5px 5px;border-radius:3px;color:#8b2e2e;
+}
+pre{
+  background:#1f1f1f;color:#e8e8e8;padding:16px 18px;border-radius:5px;
+  overflow-x:auto;font-size:13.5px;line-height:1.65;margin:20px 0;
+}
+pre code{background:none;color:inherit;padding:0;font-size:inherit}
+
+/* 图 */
+figure{margin:30px 0;text-align:center}
+figure img{max-width:100%;height:auto;border:1px solid var(--line);border-radius:4px}
+figcaption{font-size:13.5px;color:var(--ink3);margin-top:10px;line-height:1.7;text-align:left}
+
+/* 表 */
+table{width:100%;border-collapse:collapse;margin:24px 0;font-size:14.5px}
+th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--line)}
+th{background:var(--soft);font-weight:650;font-size:13.5px;color:var(--ink2)}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+tr.highlight td{background:#fffbe8}
+
+/* 列表 */
+ul,ol{margin:0 0 18px;padding-left:24px}
+li{margin-bottom:8px}
+
+/* 页脚 */
+.foot{margin-top:70px;padding-top:24px;border-top:1px solid var(--line);font-size:13.5px;color:var(--ink3);line-height:1.9}
+
+@media print{
+  body{font-size:11.5pt;line-height:1.7}
+  .wrap{max-width:none;padding:0}
+  h2{page-break-after:avoid;margin-top:26pt}
+  figure,table,.box,.formula{page-break-inside:avoid}
+  .goal{background:#f0f0f0}
+}
+@media (max-width:640px){
+  .wrap{padding:32px 18px 80px}
+  .cover h1{font-size:26px}
+  body{font-size:16px}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="cover">
+  <div class="eyebrow">论文通俗精读 · 按你学到第 4 章的水平重写</div>
+  <h1>Attention Is All You Need</h1>
+  <p class="sub">注意力就是你所需要的一切 —— 一篇把 RNN 整个换掉的论文</p>
+  <div class="meta">
+    Vaswani 等，Google，2017 年 · NIPS 2017<br>
+    <b>原文</b>：约 8000 词，15 页（含附录）<br>
+    <b>这份</b>：中文重写，术语给白话解释，每个公式补一句「这在算什么」
+  </div>
+</div>
+
+<h2><span class="num">〇</span>读之前：这篇论文到底解决了什么问题</h2>
+
+<div class="goal">
+<b>一句话</b>：2017 年之前，翻译句子的模型必须一个词一个词地读（像人读书一样从左到右），这导致它慢、而且记不住长句子开头。这篇论文说：不用顺序读了，让每个词同时看所有词，又快又准。
+</div>
+
+<p>要理解这件事，先看你熟悉的场景。</p>
+
+<p>你那个 10 万参数的模型，任务是「给前 64 个字符，猜下一个字符」。它一次只能处理 64 个字符的窗口，而且是从左往右数过去的。这是<strong>循环神经网络（RNN）</strong>的工作方式：读第一个字，记住一点东西；读第二个字，把刚才记的和新的合起来；读第三个……</p>
+
+<p><strong>问题出在这个「合起来」上。</strong> 它像一个传话游戏：第 100 个字要从第 1 个字那里得到信息，中间得经过 99 次传递，每传一次就模糊一点。句子一长，开头的信息基本丢光了。</p>
+
+<p>更要命的是<strong>没法并行</strong>。因为第 3 步必须等第 2 步算完，第 2 步必须等第 1 步。一块 GPU 上有几千个核心，可这条链子上永远只有一个核心在干活。</p>
+
+<p>这篇论文的答案很干脆：<strong>把整条链子拆掉。</strong> 让第 1 个字和第 100 个字直接见面，中间不经过任何人。这样任意两个位置的距离都是 1 步，而且所有位置可以同时算。</p>
+
+<div class="box plain">
+<span class="tag">这份译文的读法</span>
+<p>每节开头有一个蓝色框，告诉你<em>这节在解决什么问题</em>。凡是第一次出现的专业词，都会在括号里给一句白话。<span class="link">书里第 X 章</span> 这样的标记，是说你已经学过那块内容，可以直接调用。</p>
+<p>原文里那种「序列转导」「相容性函数」「成分句法分析」的说法，我尽量换成了能听懂的表达。如果某个词非保留不可（比如 query、key、value），我会先给类比再给名字。</p>
+</div>
+
+<h2><span class="num">1</span>摘要</h2>
+
+<div class="goal">
+<b>这节说什么</b>：全文的浓缩。三句话——我们做了一个不用循环、不用卷积、只用注意力的模型；翻译质量更好；训练还快得多。
+</div>
+
+<p>主流的翻译模型都建立在<strong>循环神经网络</strong>（就是上面说的「一个字一个字读」那种）或<strong>卷积神经网络</strong>之上，结构上分两半：一半负责读懂原文（编码器），一半负责写出译文（解码器）。其中效果最好的模型，还会在两者之间加一个「注意力机制」来对齐原文和译文。</p>
+
+<p>我们提出一个新架构，叫 <strong>Transformer</strong>。它<strong>完全建立在注意力机制上，一点循环、一点卷积都不用</strong>。</p>
+
+<p>在两个机器翻译任务上的实验表明：质量更好，而且因为能大规模并行，训练时间大幅缩短。</p>
+
+<ul>
+  <li><strong>英译德</strong>：28.4 BLEU，比此前最好的结果（包括把多个模型集成起来的那种）高出 2 个点以上。</li>
+  <li><strong>英译法</strong>：41.8 BLEU，单模型新纪录。在 8 块 GPU 上训练 3.5 天——只有此前最好模型的零头。</li>
+</ul>
+
+<div class="box plain">
+<span class="tag">BLEU 是什么</span>
+<p>一个给译文打分的指标，0 到 100。它比对机器译文和人参考译文里有多少词组重合。粗略感受：25 分左右能看懂大意但明显生硬，30 分以上相当通顺，40 分以上接近专业译者。<strong>不用记公式，记这个量级就够。</strong></p>
+</div>
+
+<p>最后他们还把模型用到了另一类任务（分析句子的语法结构）上，数据多和少都表现不错，说明这东西不是只能翻译。</p>
+
+<h2><span class="num">2</span>为什么原来的方法不行</h2>
+
+<div class="goal">
+<b>这节说什么</b>：把「必须顺序读」这个限制讲透，并说明此前的各种绕法为什么都只是缓解、没根治。
+</div>
+
+<p>循环网络的工作方式是把计算沿着序列位置一步步展开：维护一个「隐藏状态」 <em>h<sub>t</sub></em>，每一步用上一步的 <em>h<sub>t-1</sub></em> 和当前输入算出新的 <em>h<sub>t</sub></em>。</p>
+
+<div class="formula">
+h<sub>t</sub> = f(h<sub>t-1</sub>, x<sub>t</sub>)
+<span class="note"><b>翻译成人话</b>：这一步记住的东西 = 由「上一步记住的东西」和「这一步看到的东西」算出来的。注意 <em>h<sub>t</sub></em> 依赖 <em>h<sub>t-1</sub></em>，这是硬依赖——上一步没算完，这一步就开不了工。</span>
+</div>
+
+<p>这个「固有的顺序性」导致<strong>一个训练样本内部无法并行</strong>。序列越长越致命：因为显存有限，你没法靠加大批处理（一次塞更多句子）来弥补。</p>
+
+<p>有人试过用「分解技巧」和「条件计算」来提效，但这些只是让每步算得快一点，<strong>那条串行的链子还在</strong>。</p>
+
+<p>注意力机制此前已经被广泛使用，它有个好处：<strong>计算两个位置的关联时，不用管它们在句子里隔多远</strong>。但除了极少数尝试，注意力都是<strong>搭配</strong>循环网络用的——链子仍然存在。</p>
+
+<div class="box key">
+<span class="tag">关键突破</span>
+<p>这篇论文的做法是：<strong>把循环整个扔掉，只留注意力</strong>。让「关注谁」这件事直接由注意力机制完成，不需要先顺序读完再回头找。</p>
+<p>结果是：能并行的程度大幅提高，8 块 P100 训练 12 小时就达到当时最好的翻译质量。</p>
+</div>
+
+<h2><span class="num">3</span>模型长什么样</h2>
+
+<div class="goal">
+<b>这节说什么</b>：先看整体结构图，认识「编码器 / 解码器」这个两半结构，以及每一半内部由什么堆起来。细节在后面几节。
+</div>
+
+<figure>
+  <img src="figures/fig1-transformer-architecture.png" alt="Transformer 架构图">
+  <figcaption><strong>图 1</strong>　左半边是编码器（读原文），右半边是解码器（写译文）。从下往上，每一层都在做「变换 → 加回原样 → 归一化」这件重复的事。</figcaption>
+</figure>
+
+<p>先认三个词，这张图就通了：</p>
+
+<ul>
+  <li><strong>编码器（encoder）</strong>：把输入的句子读成一组向量。左边那摞。</li>
+  <li><strong>解码器（decoder）</strong>：根据编码器的结果，一个词一个词地写出译文。右边那摞。</li>
+  <li><strong>自回归（auto-regressive）</strong>：写译文时，每写一个词，就把它接到已写内容的后面，再猜下一个。和你那个字符级模型一模一样。</li>
+</ul>
+
+<div class="box plain">
+<span class="tag">一个容易糊涂的点</span>
+<p>「非自回归」不等于「整个系统不顺序」。<strong>训练时</strong>，因为标准答案已知，解码器可以一次性并行处理整句译文；<strong>推理时</strong>（真的要它翻译时），还是得一个词一个词往外蹦，因为下一个词的输入就是上一个词的输出。速度提升主要来自训练，以及编码器那半边完全并行。</p>
+</div>
+
+<p>整体流程是这样的：编码器把输入序列 (x<sub>1</sub>, …, x<sub>n</sub>) 变成一组连续向量 <strong>z</strong> = (z<sub>1</sub>, …, z<sub>n</sub>)；解码器拿到 <strong>z</strong>，逐个生成输出 (y<sub>1</sub>, …, y<sub>m</sub>)。</p>
+
+<h3><span class="num">3.1</span>编码器和解码器里各有什么</h3>
+
+<p><strong>编码器</strong>由 <strong>6 个完全相同的层</strong>叠起来。每一层里有两个子层：</p>
+
+<ol>
+  <li><strong>多头自注意力</strong>（下一节细讲）</li>
+  <li><strong>逐位置前馈网络</strong>——就是一个普通的两层全连接，对每个位置单独做一遍</li>
+</ol>
+
+<p>每个子层外面套了一个<strong>残差连接</strong>，后面接<strong>层归一化</strong>。写成式子就是：</p>
+
+<div class="formula">
+输出 = LayerNorm( x + Sublayer(x) )
+<span class="note"><b>翻译成人话</b>：先算这个子层的结果，<em>加回输入本身</em>，再归一化。<br>
+那个 <code>x +</code> 是残差连接：让梯度有一条直通的短路可以走，深层网络才训得动。<br>
+这个你书里第 8 章讲「残差 + LayerNorm」时会更细，现在只要知道：<strong>它俩是让 6 层能训起来的前提，不是可选项。</strong></span>
+</div>
+
+<p>为了让残差能相加，所有子层以及嵌入层的输出维度统一是 <em>d</em><sub>model</sub> = 512。</p>
+
+<p><strong>解码器</strong>也是 6 层，但每层有三个子层——比编码器多一个：</p>
+
+<ol>
+  <li>带掩码的自注意力（只能看已经写出的部分）</li>
+  <li><strong>编码器-解码器注意力</strong>：查询来自解码器自己，键和值来自编码器的输出</li>
+  <li>逐位置前馈网络</li>
+</ol>
+
+<div class="box warn">
+<span class="tag">为什么解码器要「掩码」</span>
+<p>训练时整句译文是一次性喂进去的，但模型不该偷看后面的词——否则就是抄答案。所以要把「当前位置之后」的所有位置<strong>屏蔽掉</strong>：在 softmax 之前把那些位置的分数设成 −∞，softmax 之后它们的权重就变成 0。</p>
+<p>「输出嵌入偏移一个位置」是配套操作：位置 <em>i</em> 的预测只能依赖位置小于 <em>i</em> 的已知输出。</p>
+</div>
+
+<h2><span class="num">4</span>注意力到底是什么</h2>
+
+<div class="goal">
+<b>这节说什么</b>：全文唯一的核心公式。看完你应该能用一句话说出「注意力在算什么」——<strong>用「我在找什么」去和每个「我是什么」比对，算出该听谁的，再按权重把内容搬过来。</strong>
+</div>
+
+<p>先给一个不带公式的描述：</p>
+
+<div class="box plain">
+<span class="tag">原文定义</span>
+<p>注意力函数把一个 <strong>query</strong>（查询）和一组 <strong>key-value</strong>（键-值）对，映射成一个输出。输出是<strong>值的加权和</strong>，而每个值分到多少权重，由 query 和对应 key 之间的「<em>相容性</em>」算出来。</p>
+</div>
+
+<p>「相容性」这个词很绕。换成日常语言：</p>
+
+<div class="box key">
+<span class="tag">图书馆类比</span>
+<p>你要在图书馆找一本讲「注意力机制」的书。</p>
+<ul>
+  <li><strong>Query（查询）</strong>= 你的需求：「我要找讲注意力机制的书」</li>
+  <li><strong>Key（键）</strong>= 每本书书脊上的标签：「机器学习」「烹饪」「天文学」</li>
+  <li><strong>Value（值）</strong>= 书的实际内容</li>
+</ul>
+<p>你拿自己的需求和每个标签比对，算出相关度：机器学习 0.8、天文学 0.05、烹饪 0.01。归一化之后，你按这个比例把几本书的内容「混合」起来读。</p>
+<p><strong>注意：你真正读的只有 value。query 和 key 的唯一作用是算那个比例。</strong> 这一点想通了，注意力就不再神秘。</p>
+</div>
+
+<h3><span class="num">4.1</span>缩放点积注意力（式 1）</h3>
+
+<figure>
+  <img src="figures/fig2a-scaled-dot-product-attention.png" alt="缩放点积注意力">
+  <figcaption><strong>图 2（左）</strong>　Q 和 K 做矩阵乘得到分数矩阵，除以 √d<sub>k</sub>，softmax 归一化成权重，最后加权求和 V。</figcaption>
+</figure>
+
+<p>输入的 query 和 key 是 <em>d<sub>k</sub></em> 维的，value 是 <em>d<sub>v</sub></em> 维的。实际操作时不会一个一个算，而是把所有 query 摞成一个矩阵 <strong>Q</strong>，key 摞成 <strong>K</strong>，value 摞成 <strong>V</strong>：</p>
+
+<div class="formula">
+Attention(Q, K, V) = softmax( QK<sup>T</sup> / √d<sub>k</sub> ) · V
+<span class="note"><b>逐步拆开看它在算什么</b>：<br>
+① <code>QK<sup>T</sup></code>：每个 query 和每个 key 做<strong>内积</strong>。内积就是相似度——<span class="link">书里第 2 章</span>讲过，两个向量方向越一致，内积越大。结果是一个「谁和谁多像」的方阵。<br>
+② <code>/ √d<sub>k</sub></code>：把分数压小一点，防止 softmax 变得过于极端（下一小节解释）。<br>
+③ <code>softmax(...)</code>：按行归一化，让每一行的权重加起来等于 1。softmax 怎么算、为什么减 max，<span class="link">书里第 2 章</span>有。<br>
+④ <code>· V</code>：用这些权重去加权平均 value。<strong>这一步才是真正在「搬运信息」</strong>，前面三步都只是在算比例。</span>
+</div>
+
+<div class="box key">
+<span class="tag">和你的项目直接对得上</span>
+<p>注意式 1 里只有三样运算：<strong>矩阵乘、除以一个数、softmax</strong>。这三样你在第 2 章全用过。区别只是这里的矩阵是三维的（batch × 位置 × 维度），要搞清楚在哪个 <code>axis</code> 上做 softmax——<strong>永远在最后一维</strong>，因为那是「给所有候选打分」的方向。</p>
+</div>
+
+<h3><span class="num">4.2</span>为什么要除以 √d<sub>k</sub></h3>
+
+<p>这是全篇最容易被跳过、但也最该自己算一遍的地方。</p>
+
+<p>先设想 q 和 k 的每个分量都是均值为 0、方差为 1 的独立随机数。它们的点积是 <em>d<sub>k</sub></em> 个乘积之和：</p>
+
+<div class="formula">
+q · k = Σ q<sub>i</sub> k<sub>i</sub>
+<span class="note">每一项 <em>q<sub>i</sub>k<sub>i</sub></em> 的方差是 1×1 = 1，<em>d<sub>k</sub></em> 个相互独立的加起来，<strong>方差就是 <em>d<sub>k</sub></em></strong>。<br>
+所以标准差是 <strong>√d<sub>k</sub></strong>。d<sub>k</sub> = 64 时，分数波动的典型幅度约 ±8；d<sub>k</sub> = 512 时，约 ±23。</span>
+</div>
+
+<p>分数一旦拉得很大，softmax 就会变成「一家独大」：最大的那个接近 1，其余接近 0。而此时 softmax 的<strong>梯度也接近 0</strong>——参数几乎收不到「该往哪调」的信号，训练就卡住了。</p>
+
+<div class="box warn">
+<span class="tag">这个现象你已经在别处见过</span>
+<p><span class="link">书里第 6 章</span>那张表里，未缩放时 d<sub>k</sub> 从 4 涨到 512，最大权重从 0.31 一路涨到 0.91，熵从 2.70 掉到 0.22——<strong>分布越来越尖</strong>。缩放之后，最大权重稳定在 0.10 附近，熵稳定在 3.7。这就是「除以 √d<sub>k</sub>」的全部作用。</p>
+<p>除以 √d<sub>k</sub> 之后，方差从 <em>d<sub>k</sub></em> 变回 1，和 d<sub>k</sub> 无关了。</p>
+</div>
+
+<h3><span class="num">4.3</span>为什么用点积，不用加性注意力</h3>
+
+<p>当时有两种主流做法：<strong>加性注意力</strong>（用一个单隐藏层的小网络算兼容性）和<strong>点积注意力</strong>（直接算内积）。</p>
+
+<p>两者理论复杂度相近，但点积快得多——因为<strong>矩阵乘法有高度优化的实现</strong>（就是你调 <code>a @ b</code> 时 GPU 跑的那套东西）。</p>
+
+<p>d<sub>k</sub> 小的时候两者表现差不多；d<sub>k</sub> 大了之后，不缩放的点积会变差，原因就是上面说的方差问题。加一个 √d<sub>k</sub> 就抹平了这个差距，于是点积的「快」就白赚了。</p>
+
+<h2><span class="num">5</span>多头注意力</h2>
+
+<div class="goal">
+<b>这节说什么</b>：一次性做 8 组注意力，让模型能同时关注 8 种不同的关系。新增的概念只有「分组」和「拼接」两件事。
+</div>
+
+<figure>
+  <img src="figures/fig2b-multi-head-attention.png" alt="多头注意力">
+  <figcaption><strong>图 2（右）</strong>　Q、K、V 各经过 8 组不同的线性变换，分别做注意力，再把 8 个结果拼起来过一次线性层。</figcaption>
+</figure>
+
+<p>如果只做一次注意力（用 512 维直接算），模型会被迫把所有关系「平均」到同一组权重里。问题是句子里的关系不止一种：</p>
+
+<ul>
+  <li>这个代词指的是前面哪个名词？</li>
+  <li>这个动词的主语在哪？</li>
+  <li>这两个词是不是固定搭配？</li>
+</ul>
+
+<p><strong>平均会把它们搅在一起。</strong> 论文的说法是「averaging inhibits this」。</p>
+
+<p>多头注意力的做法：把 512 维<strong>拆成 8 份，每份 64 维</strong>，每一份独立做一次注意力，最后拼回去。</p>
+
+<div class="formula">
+MultiHead(Q,K,V) = Concat(head<sub>1</sub>, …, head<sub>8</sub>) · W<sup>O</sup><br><br>
+其中 head<sub>i</sub> = Attention(Q W<sub>i</sub><sup>Q</sup>, K W<sub>i</sub><sup>K</sup>, V W<sub>i</sub><sup>V</sup>)
+<span class="note"><b>翻译成人话</b>：<br>
+① 对第 i 个头，先用一个可学习的矩阵 <em>W<sub>i</sub></em> 把 Q、K、V 各自投影到 64 维（相当于换一个「看问题的角度」）；<br>
+② 在这个低维空间里做一次普通的注意力；<br>
+③ 8 个头的结果拼成 512 维，再过一次线性层 <em>W<sup>O</sup></em> 融合。<br><br>
+<strong>关键：8 个头各自有独立的 W<sub>i</sub>，所以它们会学到不同的关注模式。</strong>这不是超参数调出来的，是训练自己分化出来的。</span>
+</div>
+
+<p>参数量上还有个巧合：8 个头各 64 维，总计算量和 1 个头用满 512 维<strong>差不多</strong>。所以多头不是靠「算得更多」换效果，而是靠「分工」。</p>
+
+<div class="box warn">
+<span class="tag">维度怎么变的（写代码时最容易错）</span>
+<p>输入 <code>(batch, 位置, 512)</code> → 投影后拆成 8 份 → <code>(batch, 8, 位置, 64)</code> → 每个头算注意力 → 拼回 <code>(batch, 位置, 512)</code>。</p>
+<p>中间为什么要 <code>transpose</code> 再 <code>contiguous</code>？因为 PyTorch 里 <code>view</code> 要求内存连续。<span class="link">书里第 7 章</span>有九步维度表，那节就是为这件事写的。</p>
+</div>
+
+<h3><span class="num">5.1</span>三种用法</h3>
+
+<p>同一个多头注意力，在模型里被用在三个地方，区别只在<strong>Q、K、V 从哪来</strong>：</p>
+
+<table>
+  <thead>
+    <tr><th>用在哪</th><th>Q 来自</th><th>K、V 来自</th><th>作用</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><strong>编码器自注意力</strong></td><td>上一层输出</td><td>上一层输出</td><td>让原文内部互相对齐</td></tr>
+    <tr><td><strong>解码器自注意力</strong></td><td>上一层输出</td><td>上一层输出（带掩码）</td><td>让译文已写部分互相对齐</td></tr>
+    <tr class="highlight"><td><strong>编码器-解码器注意力</strong></td><td>解码器上一层</td><td><strong>编码器的输出</strong></td><td>写每个词时回看原文</td></tr>
+  </tbody>
+</table>
+
+<p>第三种是传统「翻译模型」里那个注意力的位置：解码器在写第 <em>i</em> 个词时，会问「原文里哪部分跟我现在写的有关」。</p>
+
+<div class="box key">
+<span class="tag">一句话记住三者的区别</span>
+<p>看 <strong>K 和 V 是不是来自编码器</strong>：是，就是「看原文」；不是，就是「看自己」。自注意力的「自」，指的就是 Q、K、V 同源。</p>
+</div>
+
+<h2><span class="num">6</span>剩下的三个零件</h2>
+
+<div class="goal">
+<b>这节说什么</b>：注意力是主角，但光有它跑不起来。还需要一个前馈网络提供「非线性弯折」，一个嵌入层把词变成向量，以及一个位置编码告诉模型「谁在前谁在后」。
+</div>
+
+<h3><span class="num">6.1</span>逐位置前馈网络（式 2）</h3>
+
+<p>每个编码器/解码器层里，注意力后面还跟着一个普通的两层全连接：</p>
+
+<div class="formula">
+FFN(x) = max(0, x W<sub>1</sub> + b<sub>1</sub>) W<sub>2</sub> + b<sub>2</sub>
+<span class="note"><b>翻译成人话</b>：先把 512 维升到 2048 维，过一遍 ReLU（负数清零），再压回 512 维。<br>
+<code>max(0, …)</code> 就是 ReLU。<span class="link">书里第 4 章</span>讲过它为什么重要：<strong>没有它，多层线性叠加等于一层</strong>。</span>
+</div>
+
+<p>「逐位置」（position-wise）的意思是：<strong>对每个位置单独做，位置之间不交流</strong>。第 3 个词和第 5 个词用的是<strong>同一组</strong> W<sub>1</sub>、W<sub>2</sub>，但各算各的。</p>
+
+<div class="box key">
+<span class="tag">为什么这块不能省</span>
+<p>注意力本质上是一次<strong>加权平均</strong>——加权平均是线性的。如果整个模型只有注意力和线性层，那堆再多层也等价于一层（就是你书里 4.1 节那个 <code>W₂(W₁x) = Wx</code>）。</p>
+<p><strong>整个 Transformer 的「弯折能力」只有两处来源：这里的 ReLU，和注意力里的 softmax。</strong> 把这两处换掉，深度立刻失去意义。</p>
+</div>
+
+<p>论文提到另一个理解角度：这等价于<strong>两个卷积核大小为 1 的卷积</strong>。听不懂没关系——它的意思只是「每次只看一个位置、不做跨位置混合」。</p>
+
+<h3><span class="num">6.2</span>嵌入与权重共享</h3>
+
+<p>词是离散的符号（"猫"、"cat"），模型要的是向量。所以需要一个<strong>嵌入矩阵</strong>：一行一个词，把词 ID 查成 512 维向量。</p>
+
+<p>你书里第 1 章算过这个矩阵的参数量：词表大小 × 维度。这里如果是 37000 个词元 × 512 维，就是 1894 万参数——<strong>占了整个模型很大一块</strong>。</p>
+
+<p>论文做了一件省钱的事：<strong>三个地方共用同一个权重矩阵</strong>——输入嵌入、输出嵌入、以及 softmax 之前那个线性层。</p>
+
+<div class="box plain">
+<span class="tag">为什么可以共用</span>
+<p>因为这三件事在数学上是同一件事的不同方向：把词变成向量、把向量变回词、给每个词打分。共用一个矩阵相当于说「<em>用同一把尺子量两个方向</em>」，实践中效果不掉，参数省了一大块。</p>
+<p>另外嵌入向量要乘上 √d<sub>model</sub>（这里是 √512 ≈ 22.6）。原因和式 1 除以 √d<sub>k</sub> 是一对：让嵌入的数值量级和位置编码匹配，两者相加时不会一方压过另一方。</p>
+</div>
+
+<h3><span class="num">6.3</span>位置编码</h3>
+
+<p>这是全篇最需要动一下脑子的地方。</p>
+
+<div class="box warn">
+<span class="tag">先看问题</span>
+<p>注意力做的是「每个位置对所有位置算内积，再加权求和」。这个操作<strong>完全不关心顺序</strong>：把输入句子的词序打乱，输出只是跟着换个位置，内容一模一样。</p>
+<p>但语言是有顺序的：「我打你」和「你打我」意思完全相反，可对注意力来说这两句的<strong>词袋</strong>一样。</p>
+<p><strong>所以必须额外注入位置信息。</strong></p>
+</div>
+
+<p>做法：给每个位置算一个 512 维的向量，<strong>直接加到</strong>嵌入向量上（不是拼接）。</p>
+
+<div class="formula">
+PE(pos, 2i)　 = sin( pos / 10000<sup>2i/d<sub>model</sub></sup> )<br>
+PE(pos, 2i+1) = cos( pos / 10000<sup>2i/d<sub>model</sub></sup> )
+<span class="note"><b>翻译成人话</b>：位置编码的第 0、2、4… 维（偶数维）用 sin，第 1、3、5… 维（奇数维）用 cos。<br>
+分母 <code>10000<sup>2i/d</sup></code> 让每一维的<strong>频率不同</strong>：i 小的维度变化快（波长短），i 大的维度变化慢（波长长）。<br>
+波长从 2π 一路排到 10000·2π，构成等比数列。</span>
+</div>
+
+<div class="box key">
+<span class="tag">为什么是「不同频率的正弦波」</span>
+<p>想象你在给每个位置打指纹：<strong>用 256 个不同速度的钟表指针，记录它们此刻的角度</strong>。位置 0 时全部指向 0；位置 5 时短针转了几圈、长针只转了一点。<strong>这组角度组合就是位置的唯一指纹</strong>，而且相邻位置的指纹是渐变的，不是突然跳变。</p>
+<p>这比直接用 <code>1, 2, 3…</code> 当位置编号好在哪？因为数字大小会污染向量的量级——位置 5000 得是个 5000 维的怪东西。而 sin/cos 永远在 [−1, 1] 之间，安全。</p>
+<p><strong>还有一个更关键的好处</strong>：对固定的偏移量 k，<code>PE(pos+k)</code> 可以表示成 <code>PE(pos)</code> 的<strong>线性函数</strong>。这意味着模型只要学一个线性变换，就能学会「往前看 3 个词」这种相对位置关系。</p>
+</div>
+
+<p>论文也试过让位置编码跟着训练（可学习的位置嵌入），结果<strong>几乎一样</strong>（表 3 的 (E) 行）。选正弦版的原因是：它<strong>可能</strong>让模型外推到比训练时更长的序列。</p>
+
+<div class="box warn">
+<span class="tag">这个「可能」要打个问号</span>
+<p>论文用的词是 "may allow"，全文<strong>没有给任何外推实验</strong>。从公式看，位置 10000 的编码仍然算得出来，但模型有没有学会用它，是另一回事。<span class="link">书里第 10 章</span>把这条列进了「论文没讲清楚的地方」。</p>
+</div>
+
+<h2><span class="num">7</span>为什么自注意力更好</h2>
+
+<div class="goal">
+<b>这节说什么</b>：用三个可量化的指标，把「自注意力 / 循环 / 卷积」放在一起比。结论不是「自注意力全面更强」，而是「在序列长度小于维度时更划算」——这个限定条件很重要。
+</div>
+
+<p>比较三个东西：</p>
+
+<ol>
+  <li><strong>每层算多少</strong>（计算复杂度）</li>
+  <li><strong>能并行多少</strong>（最少需要几步顺序操作）</li>
+  <li><strong>信息要传多远</strong>（任意两个位置之间最长路径）</li>
+</ol>
+
+<p>第三点最容易被忽略，但它才是关键：<strong>路径越短，学长距离依赖越容易</strong>，因为梯度不用穿过一大堆中间步骤（想想传话游戏）。</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>层类型</th>
+      <th class="num">每层复杂度</th>
+      <th class="num">顺序操作数</th>
+      <th class="num">最大路径长度</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr class="highlight"><td><strong>自注意力</strong></td><td class="num">O(n² · d)</td><td class="num"><strong>O(1)</strong></td><td class="num"><strong>O(1)</strong></td></tr>
+    <tr><td>循环（RNN）</td><td class="num">O(n · d²)</td><td class="num">O(n)</td><td class="num">O(n)</td></tr>
+    <tr><td>卷积</td><td class="num">O(k · n · d²)</td><td class="num">O(1)</td><td class="num">O(log<sub>k</sub> n)</td></tr>
+    <tr><td>自注意力（限制窗口 r）</td><td class="num">O(r · n · d)</td><td class="num">O(1)</td><td class="num">O(n/r)</td></tr>
+  </tbody>
+</table>
+
+<p><em>n</em> 是序列长度，<em>d</em> 是表示维度，<em>k</em> 是卷积核大小。</p>
+
+<p>看表格里的四个值，抓住三点：</p>
+
+<ul>
+  <li><strong>顺序操作数</strong>：自注意力是 O(1)——所有位置同时算。RNN 是 O(n)——多长就得串多久。<strong>这是并行能力的直接体现。</strong></li>
+  <li><strong>最大路径长度</strong>：自注意力是 O(1)——任意两个位置一步直达。RNN 是 O(n)——隔多远就要传多少步。</li>
+  <li><strong>代价</strong>：自注意力是 O(n²·d)，<strong>序列长度翻倍，计算量翻四倍</strong>。这是它唯一的软肋。</li>
+</ul>
+
+<div class="box key">
+<span class="tag">那个「何时更快」的限定条件</span>
+<p>论文说：当 <em>n</em> &lt; <em>d</em> 时，自注意力比 RNN 快。因为</p>
+<p style="text-align:center;font-family:Georgia,serif">O(n²·d) &lt; O(n·d²)　⟺　n &lt; d</p>
+<p>机器翻译里句子通常是几十个词元（n ≈ 50），而 d = 512，条件满足。<strong>但序列变长就反过来了</strong>——这也是后来一堆「长文本 Transformer」工作要解决的问题（滑动窗口、稀疏注意力、线性注意力都是在压这个 n²）。</p>
+</div>
+
+<p>卷积层的问题不同：单个卷积核只看得到 k 个邻居，要把距离 n 的两点连起来，得叠 O(n/k) 层（连续卷积）或 O(log<sub>k</sub> n) 层（空洞卷积）。路径也就跟着变长。</p>
+
+<h2><span class="num">8</span>怎么训练的</h2>
+
+<div class="goal">
+<b>这节说什么</b>：纯粹的训练细节——用了什么数据、什么显卡、什么学习率策略。不想看细节可以跳到下一节看结果。
+</div>
+
+<h3><span class="num">8.1</span>数据和批处理</h3>
+
+<ul>
+  <li><strong>英德</strong>：WMT 2014，约 450 万句对，共享词表 37000 个词元（BPE 编码）</li>
+  <li><strong>英法</strong>：WMT 2014，3600 万句对，32000 个词元（word-piece）</li>
+</ul>
+
+<p><strong>BPE / word-piece 是什么</strong>：不按整词切，也不按单字母切，而是切在中间——常见词保留整词，罕见词拆成几个片段。比如 "unbelievable" 可能是 "un" + "believ" + "able"。这样词表不用太大，也不会出现「没见过这个词」。</p>
+
+<p>批处理按<strong>长度相近</strong>的句子放一起，每批约 25000 个源词元 + 25000 个目标词元。</p>
+
+<h3><span class="num">8.2</span>硬件与耗时</h3>
+
+<table>
+  <thead><tr><th>模型</th><th class="num">每步耗时</th><th class="num">总步数</th><th class="num">总时长</th></tr></thead>
+  <tbody>
+    <tr><td>base</td><td class="num">0.4 秒</td><td class="num">100,000</td><td class="num">12 小时</td></tr>
+    <tr><td>big</td><td class="num">1.0 秒</td><td class="num">300,000</td><td class="num">3.5 天</td></tr>
+  </tbody>
+</table>
+
+<p>机器是 8 块 NVIDIA P100。</p>
+
+<div class="box plain">
+<span class="tag">换算到你的机器</span>
+<p>你那张 RTX 5060 Laptop（8 GB）。P100 是 2016 年的数据中心卡，单精度算力约 9.5 TFLOPS，你那张显卡在 FP32 上大约 15–20 TFLOPS。<strong>单卡算力其实不差</strong>，差距在：显存只有 8 GB（P100 是 16 GB），以及批量规模。</p>
+<p>把 base 模型（6500 万参数）缩小到能在 8 GB 上跑，是可行的；想原样复现 "8 块 P100 训 12 小时"，不现实。</p>
+</div>
+
+<h3><span class="num">8.3</span>学习率：warmup（式 3）</h3>
+
+<div class="formula">
+lrate = d<sub>model</sub><sup>−0.5</sup> · min( step<sup>−0.5</sup>,　step · warmup<sup>−1.5</sup> )
+<span class="note"><b>翻译成人话</b>：学习率先<strong>线性爬升</strong>（前 4000 步），然后按<strong>步数的平方根反比</strong>缓慢下降。<br>
+那个 <code>min</code> 就是在两个曲线里取小的：左边那条是「下降」，右边那条是「爬升」，交点正好在 warmup 结束处。</span>
+</div>
+
+<div class="box warn">
+<span class="tag">为什么需要 warmup</span>
+<p>刚开始训练时参数是随机的，梯度方向很不靠谱。如果一上来就用大学习率，一次更新就能把参数推到很远的地方，之后再怎么调都回不来——<strong>直接发散</strong>。</p>
+<p>先让学习率从小慢慢涨上去，等模型「大概知道该往哪走」了，再用正常学习率。这个技巧后来成了 Transformer 系模型的标配。</p>
+</div>
+
+<h3><span class="num">8.4</span>三种正则化</h3>
+
+<ul>
+  <li><strong>残差 Dropout</strong>（P = 0.1）：每个子层的输出在「加回输入之前」随机丢一部分。对嵌入 + 位置编码的和也做。</li>
+  <li><strong>标签平滑</strong>（ε = 0.1）：不要求模型对答案 100% 确信，而是把目标概率压成「正确类 0.9，其余平分 0.1」。论文直说这会<strong>让困惑度变差</strong>（因为模型不再笃定），但<strong>准确率和 BLEU 反而更高</strong>。</li>
+  <li><strong>训练/推理差异</strong>：dropout 只在训练时开，推理时关。</li>
+</ul>
+
+<div class="box key">
+<span class="tag">标签平滑那段的深意</span>
+<p>这是全篇一个反直觉但重要的观察：<strong>「模型更不确定」和「模型更准」可以同时发生</strong>。</p>
+<p>困惑度衡量的是「模型有多确信」，BLEU 衡量的是「选出来的词对不对」。标签平滑牺牲前者换后者——说明<strong>过度自信本身就是一种过拟合</strong>。这个观点后来在很多地方被重复验证。</p>
+</div>
+
+<h2><span class="num">9</span>结果</h2>
+
+<div class="goal">
+<b>这节说什么</b>：两组数字。第一组证明「更好且更便宜」，第二组通过拆零件证明「每个零件都有用」。
+</div>
+
+<h3><span class="num">9.1</span>翻译质量</h3>
+
+<table>
+  <thead>
+    <tr><th>模型</th><th class="num">英德 BLEU</th><th class="num">英法 BLEU</th><th class="num">训练成本 (FLOPs)</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>ConvS2S（此前最好单模型）</td><td class="num">25.16</td><td class="num">40.46</td><td class="num">9.6×10¹⁸</td></tr>
+    <tr><td>ConvS2S 集成</td><td class="num">26.36</td><td class="num">41.29</td><td class="num">7.7×10¹⁹</td></tr>
+    <tr class="highlight"><td><strong>Transformer（base）</strong></td><td class="num">27.3</td><td class="num">38.1</td><td class="num"><strong>3.3×10¹⁸</strong></td></tr>
+    <tr class="highlight"><td><strong>Transformer（big）</strong></td><td class="num"><strong>28.4</strong></td><td class="num"><strong>41.8</strong></td><td class="num">2.3×10¹⁹</td></tr>
+  </tbody>
+</table>
+
+<p>最值得看的是<strong>训练成本那一列</strong>：base 模型的成本是 ConvS2S 的三分之一，却比它高出 2 个 BLEU；big 模型打败了所有集成模型，成本还低一个数量级。</p>
+
+<p><strong>集成（ensemble）</strong>指把多个模型的输出合起来投票——通常能白赚一两个点，代价是几倍的推理成本。Transformer 单模型打赢集成，这件事当时相当有冲击力。</p>
+
+<h3><span class="num">9.2</span>拆零件：消融实验</h3>
+
+<p>做法是<strong>每次只改一个地方</strong>，看开发集上的 PPL 和 BLEU 怎么变。这是判断「哪个零件真的有用」的标准方法。</p>
+
+<table>
+  <thead>
+    <tr><th>改动</th><th class="num">PPL</th><th class="num">BLEU</th><th>说明</th></tr>
+  </thead>
+  <tbody>
+    <tr class="highlight"><td>base（基准）</td><td class="num">4.92</td><td class="num">25.8</td><td>8 头，每头 64 维</td></tr>
+    <tr><td>改成 1 个头</td><td class="num">5.29</td><td class="num">24.9</td><td>掉 0.9 分，多头确实有用</td></tr>
+    <tr><td>改成 32 个头</td><td class="num">5.01</td><td class="num">25.4</td><td>头太多也变差</td></tr>
+    <tr><td>把 d<sub>k</sub> 砍到 16</td><td class="num">5.16</td><td class="num">25.1</td><td>判断相似度的空间太小</td></tr>
+    <tr><td>层数 2 层</td><td class="num">6.11</td><td class="num">23.7</td><td>深度很重要</td></tr>
+    <tr><td>层数 8 层</td><td class="num">4.88</td><td class="num">25.5</td><td>比 6 层略好，但没明显收益</td></tr>
+    <tr><td>d<sub>model</sub> 加到 1024</td><td class="num">4.66</td><td class="num">26.0</td><td>加宽有效，但参数翻了 2.6 倍</td></tr>
+    <tr><td>去掉 dropout</td><td class="num">5.77</td><td class="num">24.6</td><td>明显过拟合</td></tr>
+    <tr><td>位置编码换成可学习的</td><td class="num">4.92</td><td class="num">25.7</td><td>几乎一样</td></tr>
+  </tbody>
+</table>
+
+<div class="box warn">
+<span class="tag">怎么看这张表才不被误导</span>
+<p><strong>1. 别只看 BLEU 的绝对值。</strong> 25.8 和 25.4 差 0.4，在开发集上可能就是噪声。但 1 头 vs 8 头差 0.9，方向明确。</p>
+<p><strong>2. (E) 行值得多想一层。</strong> 位置编码换成可学习的，结果几乎完全一样（4.92 / 25.7 vs 4.92 / 25.8）。但论文正文说选正弦版是因为「可能外推到更长序列」——<strong>而这张表恰恰说明，两种做法在训练长度上没差别，外推能力也没测</strong>。</p>
+<p><strong>3. 「加宽有效」不等于「值得」。</strong> d<sub>model</sub> 从 512 到 1024，BLEU 涨 0.2，参数量从 65M 涨到 168M。</p>
+</div>
+
+<h3><span class="num">9.3</span>换个任务：句法分析</h3>
+
+<p>他们还把模型用在了<strong>英语成分句法分析</strong>（constituency parsing）上——就是给句子标出「哪个词和哪个词组成一个短语，这个短语又和谁组成更大的成分」，本质是输出一棵树。</p>
+
+<p>结果：在数据充足和只有半监督数据两种情况下都表现良好，说明 Transformer 学到的是<strong>通用的序列建模能力</strong>，不是只对翻译有效。</p>
+
+<h2><span class="num">10</span>结论</h2>
+
+<p>论文的收尾很简洁，三个要点：</p>
+
+<ol>
+  <li><strong>Transformer 是第一个完全靠注意力做序列转换的模型</strong>，把编码器和解码器里的循环层换成了多头自注意力。</li>
+  <li><strong>翻译任务上训练快得多</strong>，而且质量达到了新的最好水平。</li>
+  <li>他们期待注意力模型在<strong>其他模态</strong>（图像、音频、视频）上也能用，并计划研究「受限自注意力」来处理超长序列和大批量。</li>
+</ol>
+
+<div class="box key">
+<span class="tag">最后那句预言</span>
+<p>「我们计划研究受限自注意力以高效处理大输入和大输出」——这句话在之后的几年被反复兑现。BERT、GPT 系列全部建立在 Transformer 上；而「受限自注意力」这条路，长出了 Longformer、BigBird、滑动窗口注意力等等一整个方向。</p>
+<p><strong>一篇论文的价值，有时不看它解决了什么，而看它开了多少扇门。</strong></p>
+</div>
+
+<h2><span class="num">附</span>术语对照：原文说法 → 白话</h2>
+
+<table>
+  <thead><tr><th>原文用的词</th><th>什么意思</th><th>你书里的对应</th></tr></thead>
+  <tbody>
+    <tr><td>sequence transduction</td><td>把一个序列变成另一个序列（翻译、摘要都是）</td><td>第 5 章</td></tr>
+    <tr><td>encoder / decoder</td><td>读原文的那一半 / 写译文的那一半</td><td>第 9 章</td></tr>
+    <tr><td>query / key / value</td><td>我在找什么 / 我是什么标签 / 我实际的内容</td><td>第 6 章</td></tr>
+    <tr><td>compatibility function</td><td>算 query 和 key 有多配的方法（这里用内积）</td><td>第 2 章内积</td></tr>
+    <tr><td>self-attention</td><td>Q、K、V 来自同一个地方</td><td>第 6 章</td></tr>
+    <tr><td>multi-head</td><td>分组做多次注意力，各组学不同的关系</td><td>第 7 章</td></tr>
+    <tr><td>position-wise</td><td>对每个位置单独做，位置间不交流</td><td>第 8 章 FFN</td></tr>
+    <tr><td>residual connection</td><td>输出 = 子层结果 + 输入本身</td><td>第 8 章</td></tr>
+    <tr><td>layer normalization</td><td>对同一位置的所有维度做归一化</td><td>第 8 章</td></tr>
+    <tr><td>auto-regressive</td><td>每写一个词就接回去，再猜下一个</td><td>第 5 章</td></tr>
+    <tr><td>teacher forcing</td><td>训练时喂标准答案而不是模型自己的输出</td><td>第 5 章</td></tr>
+    <tr><td>label smoothing</td><td>不要求 100% 确信，故意留一点不确定性</td><td>第 3 章交叉熵</td></tr>
+    <tr><td>warmup</td><td>学习率先慢慢涨上去再降</td><td>第 8 章</td></tr>
+    <tr><td>beam search</td><td>不只保留一个最好的词，保留 k 条候选路径</td><td>—</td></tr>
+    <tr><td>BLEU</td><td>译文和人参考译文的重合度打分，0–100</td><td>—</td></tr>
+    <tr><td>perplexity (PPL)</td><td>模型平均在几个词之间犹豫</td><td>第 5 章</td></tr>
+    <tr><td>BPE / word-piece</td><td>按出现频率把词切成片段，不切到字母</td><td>—</td></tr>
+    <tr><td>ablation</td><td>每次只拆一个零件，看性能掉多少</td><td>第 10 章</td></tr>
+  </tbody>
+</table>
+
+<h2><span class="num">附</span>读完之后，你应该能回答的六个问题</h2>
+
+<ol>
+  <li>为什么 RNN 不能并行？<strong>（因为 h<sub>t</sub> 依赖 h<sub>t-1</sub>，链子上一步没完下一步开不了工）</strong></li>
+  <li>式 1 里 Q、K 的产物是什么？谁被真正搬运？<strong>（产物是权重矩阵；被搬运的只有 V）</strong></li>
+  <li>为什么除以 √d<sub>k</sub>？<strong>（点积方差是 d<sub>k</sub>，标准差是 √d<sub>k</sub>；不除会让 softmax 饱和，梯度趋零）</strong></li>
+  <li>多头比单头强在哪？<strong>（不同头学不同的关注模式，避免被平均掉；总计算量几乎不变）</strong></li>
+  <li>为什么需要位置编码？<strong>（注意力不看顺序，打乱词序输出只是跟着换位，内容不变）</strong></li>
+  <li>自注意力最大的代价是什么？<strong>（O(n²·d)，序列翻倍计算量翻四倍；RNN 是线性的）</strong></li>
+</ol>
+
+<div class="foot">
+这份译文按「已读完《读懂 Transformer》第 1–4 章」的水平重写，省略了参考文献与部分实验细节。<br>
+原文：Vaswani et al., <em>Attention Is All You Need</em>, NIPS 2017 · arXiv:1706.03762<br>
+配图来自原文。术语若与书里不一致，以书里的为准。
+</div>
+
+</div>
+</body>
+</html>
