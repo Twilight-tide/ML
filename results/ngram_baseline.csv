@@ -1,0 +1,13 @@
+tag,corpus,vocab,order,window,loss,ppl,n_eval,unseen_ctx_rate,table_entries
+ngram,corpus_big.txt,vocab_big.json,1,64,3.3030,27.195,393750,0.0000,1777634
+ngram,corpus_big.txt,vocab_big.json,2,64,2.5366,12.637,393750,0.0000,1777634
+ngram,corpus_big.txt,vocab_big.json,3,64,2.0483,7.755,393750,0.0159,1777634
+ngram,corpus_big.txt,vocab_big.json,4,64,1.7988,6.042,393750,0.0396,1777634
+ngram,corpus_big.txt,vocab_big.json,5,64,1.7283,5.631,393750,0.0944,1777634
+ngram,corpus_big.txt,vocab_big.json,full,full,1.7103,5.530,399999,0.0493,1777634
+ngram,corpus.txt,vocab.json,1,64,3.2984,27.070,393750,0.0000,750735
+ngram,corpus.txt,vocab.json,2,64,2.5510,12.819,393750,0.0000,750735
+ngram,corpus.txt,vocab.json,3,64,2.1937,8.969,393750,0.0167,750735
+ngram,corpus.txt,vocab.json,4,64,2.0606,7.851,393750,0.0583,750735
+ngram,corpus.txt,vocab.json,5,64,2.1099,8.247,393750,0.1520,750735
+ngram,corpus.txt,vocab.json,full,full,2.1020,8.183,399999,0.1095,750735
