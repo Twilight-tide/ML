@@ -98,7 +98,7 @@ def evaluate(model, text, stoi, device, seq_len=64, max_chars=400_000):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ckpt-a", default="results/model.pt",
-                    help="模型 A（旧语料 567 万）")
+                    help="模型 A（旧语料 630 万）")
     ap.add_argument("--ckpt-b", default="results/model_big.pt",
                     help="模型 B（新语料 2097 万）")
     ap.add_argument("--vocab-a", default="data/vocab.json")
@@ -125,7 +125,7 @@ def main():
     print()
 
     rows = []
-    for tag, ckpt, vpath in [("A 旧语料 567万", args.ckpt_a, args.vocab_a),
+    for tag, ckpt, vpath in [("A 旧语料 630万", args.ckpt_a, args.vocab_a),
                              ("B 新语料 2097万", args.ckpt_b, args.vocab_b)]:
         if not os.path.exists(ckpt):
             print("跳过 %s：找不到 %s" % (tag, ckpt))

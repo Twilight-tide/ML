@@ -63,7 +63,7 @@ def main():
     print("专项检验：`class ` 开头的生成格式正确率（每模型 30 个样本）")
     print("=" * 72)
     cases = [
-        ("results/model.pt", "旧语料 567万", "class 出现 2,149 次"),
+        ("results/model.pt", "旧语料 630万", "class 出现 2,149 次"),
         ("results/model_big.pt", "新语料 2097万", "class 出现 5,285 次"),
     ]
     for ck, tag, note in cases:
