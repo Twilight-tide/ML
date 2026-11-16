@@ -124,6 +124,7 @@ couplet/data/*
 !couplet/data/.gitkeep
 # 但词表是训练产物，体积极小、必须入库（否则结果无法复现）
 !couplet/data/vocab.json
+!couplet/data/tone_table.json
 
 # 模型权重
 *.pt
