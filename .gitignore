@@ -118,6 +118,13 @@ data/*
 datasets/*
 !datasets/.gitkeep
 
+# 对联项目的数据集（约 60 MB，可从公开 Release 重新下载）
+# 保留目录与 .gitkeep，排掉数据本身
+couplet/data/*
+!couplet/data/.gitkeep
+# 但词表是训练产物，体积极小、必须入库（否则结果无法复现）
+!couplet/data/vocab.json
+
 # 模型权重
 *.pt
 *.pth
