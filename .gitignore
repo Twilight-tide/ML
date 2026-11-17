@@ -14,6 +14,10 @@
 # 只记录依赖清单（requirements.txt），环境本身可由清单重建：
 #     pip install -r requirements.txt
 .venv/
+
+# 项目内临时目录（sitecustomize.py 把 TEMP 和 pip 缓存指到这里，
+# 因为本机限制 venv 的 Python 只能写工作区内部；删了 pip 会重新卡死）
+.tmp/
 venv/
 env/
 ENV/
@@ -125,6 +129,9 @@ couplet/data/*
 # 但词表是训练产物，体积极小、必须入库（否则结果无法复现）
 !couplet/data/vocab.json
 !couplet/data/tone_table.json
+
+# docx 转换的中间产物（HTML + 图片副本），可用 tools/md2html.py 重新生成
+couplet/output/
 
 # 模型权重
 *.pt
